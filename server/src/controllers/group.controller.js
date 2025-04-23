@@ -41,68 +41,42 @@ exports.createGroup = async (req, res) => {
   }
 };
 
-// Get all groups the user has access to
+// Get all groups (all users can view all groups)
 exports.getAllGroups = async (req, res) => {
   try {
     console.log('Getting all groups for user:', req.user.id, 'Role:', req.user.role);
     
-    // Super admin can see all groups
-    if (req.user.role === 'admin') {
-      console.log('User is admin, fetching all groups');
-      const allGroups = await Group.findAll();
-      console.log('Found', allGroups.length, 'groups for admin');
-      
-      // Log activity
-      await Activity.create({
-        userId: req.user.id,
-        action: 'view_all_groups',
-        resourceType: 'group',
-        resourceId: req.user.id,
-        details: { count: allGroups.length, asAdmin: true },
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent']
-      });
-      
-      return res.status(200).json({
-        status: 'success',
-        results: allGroups.length,
-        data: {
-          groups: allGroups
-        }
-      });
-    }
+    // Fetch all groups
+    const allGroups = await Group.findAll();
+    console.log('Found', allGroups.length, 'total groups');
     
-    console.log('Regular user, fetching owned and member groups');
-    // For regular users, find all groups where user is owner
-    const ownedGroups = await Group.findAll({
-      where: { ownerId: req.user.id }
+    // Mark which groups are owned by the current user
+    const enhancedGroups = allGroups.map(group => {
+      const groupData = group.toJSON();
+      groupData.isOwner = group.ownerId === req.user.id;
+      return groupData;
     });
-    console.log('Found', ownedGroups.length, 'owned groups');
-
-    // Find all groups where user is a member
-    const GroupMember = require('../models/groupMember.model');
-    const memberGroups = await Group.findAll({
-      include: [{
-        model: GroupMember,
-        where: { userId: req.user.id }
-      }]
+    
+    // Log activity
+    await Activity.create({
+      userId: req.user.id,
+      action: 'view_all_groups',
+      resourceType: 'group',
+      resourceId: req.user.id,
+      details: { count: allGroups.length },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
     });
-    console.log('Found', memberGroups.length, 'member groups');
-
-    // Combine both sets of groups
-    const groups = [...ownedGroups, ...memberGroups.filter(g => 
-      !ownedGroups.some(og => og.id === g.id)
-    )];
-    console.log('Total unique groups:', groups.length);
-
-    res.status(200).json({
+    
+    return res.status(200).json({
       status: 'success',
-      results: groups.length,
+      results: enhancedGroups.length,
       data: {
-        groups
+        groups: enhancedGroups
       }
     });
   } catch (err) {
+    console.error('Error fetching groups:', err);
     res.status(400).json({
       status: 'fail',
       message: err.message
@@ -181,14 +155,10 @@ exports.getGroup = async (req, res) => {
 // Update a group
 exports.updateGroup = async (req, res) => {
   try {
-    const GroupMember = require('../models/groupMember.model');
-    const group = await Group.findByPk(req.params.id, {
-      include: [{
-        model: GroupMember,
-        where: { userId: req.user.id, role: 'admin' },
-        required: false
-      }]
-    });
+    console.log('Updating group, user role:', req.user.role);
+    
+    // Get the group
+    const group = await Group.findByPk(req.params.id);
 
     if (!group) {
       return res.status(404).json({
@@ -197,14 +167,17 @@ exports.updateGroup = async (req, res) => {
       });
     }
 
-    // Check if user is the owner or an admin
+    // Check if user is admin or the owner of the group
+    const isAdmin = req.user.role === 'admin';
     const isOwner = group.ownerId === req.user.id;
-    const isAdmin = group.GroupMembers && group.GroupMembers.length > 0;
-
+    
+    console.log('Is admin:', isAdmin, 'Is owner:', isOwner);
+    
+    // Only allow group owners or admins to update groups
     if (!isOwner && !isAdmin) {
       return res.status(403).json({
         status: 'fail',
-        message: 'Only the group owner or admin can update the group'
+        message: 'Only the group owner can update the group'
       });
     }
 
@@ -282,14 +255,17 @@ exports.deleteGroup = async (req, res) => {
       userId: req.user.id,
       action: 'delete_group',
       resourceType: 'group',
-      resourceId: group.id,
+      resourceId: req.params.id,
       details: { name: group.name },
       ipAddress: req.ip,
       userAgent: req.headers['user-agent']
     });
 
-    res.status(204).json({
-      status: 'success',
+    // Return a success response with status 200 instead of 204
+    // This ensures the frontend receives the success property
+    res.status(200).json({
+      success: true,
+      message: 'Group deleted successfully',
       data: null
     });
   } catch (err) {

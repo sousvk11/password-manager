@@ -62,6 +62,10 @@ const AdminPanel = () => {
     role: 'user'
   });
   
+  // Form validation
+  const [formErrors, setFormErrors] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const [selectedUser, setSelectedUser] = useState(null);
   
   // System stats
@@ -147,6 +151,13 @@ const AdminPanel = () => {
   
   const handleCloseAddUserDialog = () => {
     setOpenAddUserDialog(false);
+    setUserForm({
+      name: '',
+      email: '',
+      password: '',
+      role: 'user'
+    });
+    setFormErrors({});
   };
   
   const handleOpenEditUserDialog = (user) => {
@@ -180,16 +191,63 @@ const AdminPanel = () => {
     setUserForm({ ...userForm, [e.target.name]: e.target.value });
   };
   
+  // Validate user form
+  const validateUserForm = () => {
+    const errors = {};
+    
+    // Validate name
+    if (!userForm.name || userForm.name.trim() === '') {
+      errors.name = 'Name is required';
+    }
+    
+    // Validate email
+    if (!userForm.email || !/\S+@\S+\.\S+/.test(userForm.email)) {
+      errors.email = 'Valid email is required';
+    }
+    
+    // Validate password
+    if (!userForm.password || userForm.password.length < 8) {
+      errors.password = 'Password must be at least 8 characters';
+    }
+    
+    return errors;
+  };
+  
   // Submit handlers
   const handleAddUser = async () => {
+    setIsSubmitting(true);
+    
+    // Validate form
+    const errors = validateUserForm();
+    setFormErrors(errors);
+    
+    // If there are errors, don't submit
+    if (Object.keys(errors).length > 0) {
+      setIsSubmitting(false);
+      return;
+    }
+    
     try {
-      await axios.post('/users', userForm);
+      console.log('Submitting user form:', userForm);
+      const response = await axios.post('/users', userForm);
+      console.log('User created successfully:', response.data);
       toast.success('User created successfully!');
       handleCloseAddUserDialog();
       fetchUsers();
     } catch (error) {
       console.error('Error creating user:', error);
-      toast.error(error.response?.data?.message || 'Failed to create user. Please try again.');
+      if (error.response?.data?.errors) {
+        // Handle validation errors from server
+        const serverErrors = {};
+        error.response.data.errors.forEach(err => {
+          serverErrors[err.path] = err.message;
+        });
+        setFormErrors(serverErrors);
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to create user. Please try again.');
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
   
@@ -453,6 +511,11 @@ const AdminPanel = () => {
       <Dialog open={openAddUserDialog} onClose={handleCloseAddUserDialog} maxWidth="sm" fullWidth>
         <DialogTitle>Add New User</DialogTitle>
         <DialogContent>
+          {Object.keys(formErrors).length > 0 && (
+            <Alert severity="error" sx={{ mb: 2, mt: 1 }}>
+              Please fix the errors below
+            </Alert>
+          )}
           <TextField
             autoFocus
             margin="dense"
@@ -465,6 +528,8 @@ const AdminPanel = () => {
             value={userForm.name}
             onChange={handleUserFormChange}
             required
+            error={!!formErrors.name}
+            helperText={formErrors.name}
             sx={{ mb: 2, mt: 1 }}
           />
           <TextField
@@ -478,6 +543,8 @@ const AdminPanel = () => {
             value={userForm.email}
             onChange={handleUserFormChange}
             required
+            error={!!formErrors.email}
+            helperText={formErrors.email}
             sx={{ mb: 2 }}
           />
           <TextField
@@ -491,6 +558,8 @@ const AdminPanel = () => {
             value={userForm.password}
             onChange={handleUserFormChange}
             required
+            error={!!formErrors.password}
+            helperText={formErrors.password || 'Password must be at least 8 characters'}
             sx={{ mb: 2 }}
           />
           <FormControl fullWidth required>
@@ -509,13 +578,14 @@ const AdminPanel = () => {
           </FormControl>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseAddUserDialog}>Cancel</Button>
+          <Button onClick={handleCloseAddUserDialog} disabled={isSubmitting}>Cancel</Button>
           <Button 
             onClick={handleAddUser} 
             variant="contained"
-            disabled={!userForm.name || !userForm.email || !userForm.password}
+            disabled={isSubmitting || !userForm.name || !userForm.email || !userForm.password}
+            startIcon={isSubmitting ? <CircularProgress size={20} /> : null}
           >
-            Add User
+            {isSubmitting ? 'Adding...' : 'Add User'}
           </Button>
         </DialogActions>
       </Dialog>

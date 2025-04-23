@@ -145,49 +145,25 @@ exports.createCredential = async (req, res) => {
       });
     }
     
-    // Check if user is an admin (admins can add credentials to any group)
-    const isAdmin = req.user.role === 'admin';
-    console.log('User role:', req.user.role, 'Is admin:', isAdmin);
-    
-    if (!isAdmin) {
-      // For non-admin users, check if user has permission to add credential to all groups
-      for (const groupId of groupIds) {
-        const group = await Group.findByPk(groupId);
-        
-        if (!group) {
-          return res.status(404).json({
-            status: 'fail',
-            message: `Group with ID ${groupId} not found`
-          });
-        }
-        
-        console.log(`Checking permission for group ${group.name} (ID: ${groupId})`);
-        
-        // Check if user is owner or has admin/editor role in the group
-        const isOwner = group.ownerId === req.user.id;
-        console.log('Is owner:', isOwner, 'User ID:', req.user.id, 'Group owner ID:', group.ownerId);
-        
-        if (!isOwner) {
-          const membership = await GroupMember.findOne({
-            where: {
-              groupId: group.id,
-              userId: req.user.id,
-              role: { [Op.in]: ['admin', 'editor'] }
-            }
-          });
-          
-          console.log('Membership found:', !!membership);
-          
-          if (!membership) {
-            return res.status(403).json({
-              status: 'fail',
-              message: `You do not have permission to add credentials to group ${group.name}`
-            });
-          }
-        }
+    // Verify all groups exist
+    for (const groupId of groupIds) {
+      const group = await Group.findByPk(groupId);
+      
+      if (!group) {
+        return res.status(404).json({
+          status: 'fail',
+          message: `Group with ID ${groupId} not found`
+        });
       }
-    } else {
-      console.log('Admin user - bypassing permission checks for credential creation');
+      
+      console.log(`Group found: ${group.name} (ID: ${groupId})`);
+    }
+    
+    console.log('All groups verified - allowing credential assignment to any group');
+    
+    // Admin users get special logging
+    if (req.user.role === 'admin') {
+      console.log('Admin user creating credential');
     }
 
     // Create the credential without groupId
@@ -269,6 +245,20 @@ exports.getAllCredentials = async (req, res) => {
         
         console.log('Found', allCredentials.length, 'credentials for admin');
         
+        // Decrypt passwords if requested
+        let credentialsToReturn = allCredentials;
+        if (req.query.decrypted === 'true') {
+          console.log('Decrypting passwords for admin credentials');
+          credentialsToReturn = allCredentials.map(credential => {
+            const credentialJSON = credential.toJSON();
+            credentialJSON.password = credential.decryptPassword();
+            if (credential.token) {
+              credentialJSON.token = credential.decryptToken();
+            }
+            return credentialJSON;
+          });
+        }
+
         // Log activity
         await Activity.create({
           userId: req.user.id,
@@ -282,9 +272,9 @@ exports.getAllCredentials = async (req, res) => {
 
         return res.status(200).json({
           status: 'success',
-          results: allCredentials.length,
+          results: credentialsToReturn.length,
           data: {
-            credentials: allCredentials
+            credentials: credentialsToReturn
           }
         });
       } catch (error) {
@@ -366,7 +356,20 @@ exports.getAllCredentials = async (req, res) => {
       }
     });
 
-    const credentials = Array.from(allCredentialsMap.values());
+    let credentials = Array.from(allCredentialsMap.values());
+    
+    // Decrypt passwords if requested
+    if (req.query.decrypted === 'true') {
+      console.log('Decrypting passwords for all credentials');
+      credentials = credentials.map(credential => {
+        const credentialJSON = credential.toJSON();
+        credentialJSON.password = credential.decryptPassword();
+        if (credential.token) {
+          credentialJSON.token = credential.decryptToken();
+        }
+        return credentialJSON;
+      });
+    }
 
     // Log activity
     await Activity.create({
@@ -629,8 +632,11 @@ exports.deleteCredential = async (req, res) => {
     // Delete the credential
     await credential.destroy();
 
-    res.status(204).json({
-      status: 'success',
+    // Return a success response with status 200 instead of 204
+    // This ensures the frontend receives the success property
+    res.status(200).json({
+      success: true,
+      message: 'Credential deleted successfully',
       data: null
     });
   } catch (err) {

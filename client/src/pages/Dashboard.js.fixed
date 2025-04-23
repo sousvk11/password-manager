@@ -32,11 +32,10 @@ import {
   Visibility as ViewIcon,
   ContentCopy as CopyIcon,
   Group as GroupIcon,
-  VpnKey as VpnKeyIcon,
-  VisibilityOff as VisibilityOffIcon,
-  Close as CloseIcon
+  VpnKey as VpnKeyIcon
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import axios from 'axios';
 import AuthContext from '../context/AuthContext';
 
@@ -48,7 +47,6 @@ const Dashboard = () => {
   // State variables
   const [tabValue, setTabValue] = useState(0);
   const [groups, setGroups] = useState([]);
-  const [myGroups, setMyGroups] = useState([]);
   const [credentials, setCredentials] = useState([]);
   const [filteredCredentials, setFilteredCredentials] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState(null);
@@ -58,8 +56,6 @@ const Dashboard = () => {
   const [openGroupDialog, setOpenGroupDialog] = useState(false);
   const [openCredentialDialog, setOpenCredentialDialog] = useState(false);
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
-  const [openViewCredentialDialog, setOpenViewCredentialDialog] = useState(false);
-  const [viewingCredential, setViewingCredential] = useState(null);
   
   // Form states
   const [groupForm, setGroupForm] = useState({ name: '', description: '' });
@@ -71,7 +67,7 @@ const Dashboard = () => {
     password: '',
     token: '',
     description: '',
-    groups: []
+    group: ''
   });
   const [deleteItem, setDeleteItem] = useState({ id: '', type: '' });
   
@@ -80,10 +76,8 @@ const Dashboard = () => {
     const view = searchParams.get('view');
     if (view === 'groups') {
       setTabValue(0);
-    } else if (view === 'my-groups') {
-      setTabValue(1);
     } else if (view === 'credentials') {
-      setTabValue(2);
+      setTabValue(1);
     }
   }, [searchParams]);
   
@@ -108,41 +102,29 @@ const Dashboard = () => {
         const groupsResponse = await axios.get('/groups');
         console.log('Groups response:', groupsResponse.data);
         // Handle different response formats
-        let allGroups = [];
         if (groupsResponse.data.data && groupsResponse.data.data.groups) {
-          allGroups = groupsResponse.data.data.groups;
+          setGroups(groupsResponse.data.data.groups);
         } else if (Array.isArray(groupsResponse.data.data)) {
-          allGroups = groupsResponse.data.data;
+          setGroups(groupsResponse.data.data);
+        } else {
+          setGroups([]);
         }
-        
-        setGroups(allGroups);
-        
-        // Filter groups created by the current user
-        const userGroups = allGroups.filter(group => group.UserId === currentUser?.id || group.ownerId === currentUser?.id);
-        setMyGroups(userGroups);
         
         console.log('Fetching credentials...');
         // Fetch credentials
-        try {
-          // Add decrypted=true parameter to get decrypted passwords
-          const credentialsResponse = await axios.get('/credentials?decrypted=true');
-          
-          if (credentialsResponse.data && credentialsResponse.data.data && credentialsResponse.data.data.credentials) {
-            setCredentials(credentialsResponse.data.data.credentials);
-            setFilteredCredentials(credentialsResponse.data.data.credentials);
-          } else if (credentialsResponse.data && credentialsResponse.data.credentials) {
-            setCredentials(credentialsResponse.data.credentials);
-            setFilteredCredentials(credentialsResponse.data.credentials);
-          } else {
-            console.error('Unexpected credentials response format:', credentialsResponse.data);
-            setCredentials([]);
-            setFilteredCredentials([]);
-          }
-        } catch (error) {
-          console.error('Error fetching credentials:', error);
-          console.error('Error details:', error.response?.data);
-          toast.error(error.response?.data?.message || 'Failed to load credentials. Please try again.');
+        const credentialsResponse = await axios.get('/credentials');
+        console.log('Credentials response:', credentialsResponse.data);
+        
+        // Handle different response formats
+        let allCredentials = [];
+        if (credentialsResponse.data.data && credentialsResponse.data.data.credentials) {
+          allCredentials = credentialsResponse.data.data.credentials;
+        } else if (Array.isArray(credentialsResponse.data.data)) {
+          allCredentials = credentialsResponse.data.data;
         }
+        
+        setCredentials(allCredentials);
+        setFilteredCredentials(allCredentials);
         
         toast.success('Data loaded successfully!');
       } catch (error) {
@@ -160,13 +142,7 @@ const Dashboard = () => {
   // Handle tab change
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
-    let view = 'groups';
-    if (newValue === 1) {
-      view = 'my-groups';
-    } else if (newValue === 2) {
-      view = 'credentials';
-    }
-    setSearchParams({ view });
+    setSearchParams({ view: newValue === 0 ? 'groups' : 'credentials' });
   };
   
   // Filter credentials by group
@@ -221,7 +197,7 @@ const Dashboard = () => {
         password: credential.password || '',
         token: credential.token || '',
         description: credential.description || '',
-        groups: credential.Groups ? credential.Groups.map(g => g.id) : []
+        group: credential.Groups && credential.Groups.length > 0 ? credential.Groups[0].id : ''
       });
     } else {
       setCredentialForm({
@@ -232,7 +208,7 @@ const Dashboard = () => {
         password: '',
         token: '',
         description: '',
-        groups: []
+        group: ''
       });
     }
     setOpenCredentialDialog(true);
@@ -248,7 +224,7 @@ const Dashboard = () => {
       password: '',
       token: '',
       description: '',
-      groups: []
+      group: ''
     });
   };
   
@@ -283,40 +259,14 @@ const Dashboard = () => {
       
       const response = await axios[method](url, groupForm);
       
-      // Consider the operation successful if we get a valid response with data
-      // or if the response has a success flag set to true
-      const isSuccess = response.data && (response.data.success || response.data.data);
-      
-      if (isSuccess) {
+      if (response.data.success) {
         toast.success(isEditing ? 'Group updated successfully!' : 'Group created successfully!');
         
-        try {
-          // Refresh groups data to ensure we have the latest
-          const refreshResponse = await axios.get('/groups');
-          let allGroups = [];
-          if (refreshResponse.data.data && refreshResponse.data.data.groups) {
-            allGroups = refreshResponse.data.data.groups;
-          } else if (Array.isArray(refreshResponse.data.data)) {
-            allGroups = refreshResponse.data.data;
-          }
-          
-          setGroups(allGroups);
-          
-          // Filter groups created by the current user
-          const userGroups = allGroups.filter(group => group.UserId === currentUser?.id || group.ownerId === currentUser?.id);
-          setMyGroups(userGroups);
-        } catch (refreshError) {
-          console.error('Error refreshing groups:', refreshError);
-          // Even if refresh fails, we'll update with the data we have
-          if (isEditing) {
-            setGroups(prev => prev.map(g => g.id === groupForm.id ? { ...g, ...groupForm } : g));
-            setMyGroups(prev => prev.map(g => g.id === groupForm.id ? { ...g, ...groupForm } : g));
-          } else {
-            // For new groups, add to both lists if created by current user
-            const newGroup = response.data.data || { ...groupForm, id: Date.now(), UserId: currentUser?.id };
-            setGroups(prev => [...prev, newGroup]);
-            setMyGroups(prev => [...prev, newGroup]);
-          }
+        // Update local state
+        if (isEditing) {
+          setGroups(prev => prev.map(g => g.id === groupForm.id ? { ...g, ...groupForm } : g));
+        } else {
+          setGroups(prev => [...prev, response.data.data]);
         }
         
         handleCloseGroupDialog();
@@ -337,37 +287,33 @@ const Dashboard = () => {
       
       // Format the data for the API
       const formData = { ...credentialForm };
-      // Format groups properly for the API
-      if (formData.groups && formData.groups.length > 0) {
-        formData.groupIds = formData.groups;
+      // If group is selected, format it properly for the API
+      if (formData.group) {
+        formData.groupId = formData.group;
       }
-      delete formData.groups;
+      delete formData.group;
       
       const response = await axios[method](url, formData);
       
-      // Consider the operation successful if we get a valid response with data
-      // or if the response has a success flag set to true
-      const isSuccess = response.data && (response.data.success || response.data.data);
-      
-      if (isSuccess) {
+      if (response.data.success) {
         toast.success(isEditing ? 'Credential updated successfully!' : 'Credential created successfully!');
         
-        try {
-          // Refresh data after creating/updating
-          // Add decrypted=true parameter to get decrypted passwords
-          const refreshResponse = await axios.get('/credentials?decrypted=true');
-          
-          if (refreshResponse.data && refreshResponse.data.data && refreshResponse.data.data.credentials) {
-            setCredentials(refreshResponse.data.data.credentials);
-            setFilteredCredentials(refreshResponse.data.data.credentials);
-          } else if (refreshResponse.data && refreshResponse.data.credentials) {
-            setCredentials(refreshResponse.data.credentials);
-            setFilteredCredentials(refreshResponse.data.credentials);
-          }
-        } catch (refreshError) {
-          console.error('Error refreshing credentials:', refreshError);
-          // Even if refresh fails, we consider the operation successful
-          // We'll just close the dialog and let the user refresh manually if needed
+        // Refresh data after creating/updating
+        const refreshResponse = await axios.get('/credentials');
+        let allCredentials = [];
+        if (refreshResponse.data.data && refreshResponse.data.data.credentials) {
+          allCredentials = refreshResponse.data.data.credentials;
+        } else if (Array.isArray(refreshResponse.data.data)) {
+          allCredentials = refreshResponse.data.data;
+        }
+        
+        setCredentials(allCredentials);
+        
+        // If a group filter is active, apply it
+        if (selectedGroup) {
+          filterCredentialsByGroup(selectedGroup.id);
+        } else {
+          setFilteredCredentials(allCredentials);
         }
         
         handleCloseCredentialDialog();
@@ -383,15 +329,8 @@ const Dashboard = () => {
   const handleDelete = async () => {
     try {
       const { id, type } = deleteItem;
-      
-      // Only allow credential deletion or group deletion by admin
-      if (type === 'group' && currentUser?.role !== 'admin') {
-        toast.error('Only administrators can delete groups.');
-        handleCloseDeleteDialog();
-        return;
-      }
-      
       const url = type === 'group' ? `/groups/${id}` : `/credentials/${id}`;
+      
       const response = await axios.delete(url);
       
       if (response.data.success) {
@@ -399,29 +338,8 @@ const Dashboard = () => {
         
         // Update local state
         if (type === 'group') {
-          // Refresh groups after deletion
-          try {
-            const refreshResponse = await axios.get('/groups');
-            let allGroups = [];
-            if (refreshResponse.data.data && refreshResponse.data.data.groups) {
-              allGroups = refreshResponse.data.data.groups;
-            } else if (Array.isArray(refreshResponse.data.data)) {
-              allGroups = refreshResponse.data.data;
-            }
-            
-            setGroups(allGroups);
-            
-            // Filter groups created by the current user
-            const userGroups = allGroups.filter(group => group.UserId === currentUser?.id || group.ownerId === currentUser?.id);
-            setMyGroups(userGroups);
-          } catch (refreshError) {
-            console.error('Error refreshing groups after deletion:', refreshError);
-            // Fallback to filtering locally
-            setGroups(prev => prev.filter(g => g.id !== id));
-            setMyGroups(prev => prev.filter(g => g.id !== id));
-          }
+          setGroups(prev => prev.filter(g => g.id !== id));
         } else {
-          // Update credentials
           const updatedCredentials = credentials.filter(c => c.id !== id);
           setCredentials(updatedCredentials);
           
@@ -474,100 +392,7 @@ const Dashboard = () => {
     }));
   };
   
-  // View credential dialog handlers
-  const handleOpenViewCredentialDialog = (credential) => {
-    setViewingCredential(credential);
-    // Show password by default in view dialog
-    setShowPassword(prev => ({
-      ...prev,
-      [credential.id]: true
-    }));
-    setOpenViewCredentialDialog(true);
-  };
-
-  const handleCloseViewCredentialDialog = () => {
-    setOpenViewCredentialDialog(false);
-    setViewingCredential(null);
-  };
-  
-  // Render my groups tab
-  const renderMyGroupsTab = () => {
-    if (loading) {
-      return (
-        <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-          <CircularProgress />
-        </Box>
-      );
-    }
-    
-    if (myGroups.length === 0) {
-      return (
-        <Box sx={{ mt: 4, textAlign: 'center' }}>
-          <Typography variant="h6" color="text.secondary">
-            You haven't created any groups yet. Create your first group to get started.
-          </Typography>
-          <Button 
-            variant="contained" 
-            startIcon={<AddIcon />} 
-            sx={{ mt: 2 }}
-            onClick={() => handleOpenGroupDialog()}
-          >
-            Create Group
-          </Button>
-        </Box>
-      );
-    }
-    
-    return (
-      <Grid container spacing={3}>
-        {myGroups.map(group => (
-          <Grid item xs={12} sm={6} md={4} key={group.id}>
-            <Card 
-              sx={{ 
-                height: '100%', 
-                display: 'flex', 
-                flexDirection: 'column',
-                transition: 'all 0.3s',
-                '&:hover': {
-                  transform: 'translateY(-5px)',
-                  boxShadow: 4
-                }
-              }}
-            >
-              <CardContent sx={{ flexGrow: 1 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="h6" component="div">
-                    {group.name}
-                  </Typography>
-                  <GroupIcon color="primary" />
-                </Box>
-                
-                {group.description && (
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    {group.description}
-                  </Typography>
-                )}
-                
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                  <Tooltip title="Edit Group">
-                    <IconButton 
-                      size="small" 
-                      color="primary"
-                      onClick={() => handleOpenGroupDialog(group)}
-                    >
-                      <EditIcon />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
-    );
-  };
-  
-  // Render all groups tab
+  // Render groups tab
   const renderGroupsTab = () => {
     if (loading) {
       return (
@@ -636,18 +461,16 @@ const Dashboard = () => {
                       <EditIcon />
                     </IconButton>
                   </Tooltip>
-                  {/* Only superusers (admin role) can delete groups */}
-                  {currentUser?.role === 'admin' && (
-                    <Tooltip title="Delete Group">
-                      <IconButton 
-                        size="small" 
-                        color="error"
-                        onClick={() => handleOpenDeleteDialog(group.id, 'group')}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
-                  )}
+                  <Tooltip title="Delete Group">
+                    <IconButton 
+                      size="small" 
+                      color="error"
+                      onClick={() => handleOpenDeleteDialog(group.id, 'group')}
+                      disabled={group.UserId !== currentUser?.id}
+                    >
+                      <DeleteIcon />
+                    </IconButton>
+                  </Tooltip>
                 </Box>
               </CardContent>
             </Card>
@@ -794,20 +617,11 @@ const Dashboard = () => {
                   
                   {credential.Groups && credential.Groups.length > 0 && (
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                      Groups: {credential.Groups.map(g => g.name).join(', ')}
+                      Group: {credential.Groups[0].name}
                     </Typography>
                   )}
                   
                   <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
-                    <Tooltip title="View Credential">
-                      <IconButton 
-                        size="small" 
-                        color="info"
-                        onClick={() => handleOpenViewCredentialDialog(credential)}
-                      >
-                        <ViewIcon />
-                      </IconButton>
-                    </Tooltip>
                     <Tooltip title="Edit Credential">
                       <IconButton 
                         size="small" 
@@ -844,7 +658,7 @@ const Dashboard = () => {
             Dashboard
           </Typography>
           <Box>
-            {(tabValue === 0 || tabValue === 1) && (
+            {tabValue === 0 && (
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}
@@ -861,23 +675,16 @@ const Dashboard = () => {
             <Tab 
               icon={<GroupIcon />} 
               iconPosition="start" 
-              label="All Groups" 
+              label="Groups" 
               id="tab-0" 
               aria-controls="tabpanel-0" 
-            />
-            <Tab 
-              icon={<GroupIcon />} 
-              iconPosition="start" 
-              label="My Groups" 
-              id="tab-1" 
-              aria-controls="tabpanel-1" 
             />
             <Tab 
               icon={<VpnKeyIcon />} 
               iconPosition="start" 
               label="Credentials" 
-              id="tab-2" 
-              aria-controls="tabpanel-2" 
+              id="tab-1" 
+              aria-controls="tabpanel-1" 
             />
           </Tabs>
         </Box>
@@ -887,11 +694,7 @@ const Dashboard = () => {
         </Box>
         
         <Box role="tabpanel" hidden={tabValue !== 1} id="tabpanel-1" aria-labelledby="tab-1" sx={{ py: 3 }}>
-          {tabValue === 1 && renderMyGroupsTab()}
-        </Box>
-        
-        <Box role="tabpanel" hidden={tabValue !== 2} id="tabpanel-2" aria-labelledby="tab-2" sx={{ py: 3 }}>
-          {tabValue === 2 && renderCredentialsTab()}
+          {tabValue === 1 && renderCredentialsTab()}
         </Box>
       </Box>
       
@@ -1039,36 +842,18 @@ const Dashboard = () => {
           />
           
           <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
-            <InputLabel id="groups-label">Groups</InputLabel>
+            <InputLabel id="group-label">Group</InputLabel>
             <Select
-              labelId="groups-label"
-              id="groups"
-              name="groups"
-              multiple
-              value={credentialForm.groups}
-              label="Groups"
+              labelId="group-label"
+              id="group"
+              name="group"
+              value={credentialForm.group}
+              label="Group"
               onChange={handleCredentialFormChange}
-              renderValue={(selected) => (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {selected.map((value) => {
-                    const group = groups.find(g => g.id === value);
-                    return (
-                      <Box key={value} component="span" sx={{ 
-                        bgcolor: 'primary.light', 
-                        color: 'white',
-                        px: 1,
-                        py: 0.5,
-                        borderRadius: 1,
-                        display: 'inline-flex',
-                        alignItems: 'center'
-                      }}>
-                        {group ? group.name : value}
-                      </Box>
-                    );
-                  })}
-                </Box>
-              )}
             >
+              <MenuItem value="">
+                <em>None</em>
+              </MenuItem>
               {groups.map((group) => (
                 <MenuItem key={group.id} value={group.id}>
                   {group.name}
@@ -1104,12 +889,7 @@ const Dashboard = () => {
       </Dialog>
       
       {/* Delete Confirmation Dialog */}
-      <Dialog
-        open={openDeleteDialog}
-        onClose={() => setOpenDeleteDialog(false)}
-        aria-labelledby="alert-dialog-title"
-        aria-describedby="alert-dialog-description"
-      >
+      <Dialog open={openDeleteDialog} onClose={handleCloseDeleteDialog}>
         <DialogTitle>Confirm Delete</DialogTitle>
         <DialogContent>
           <Typography>
@@ -1120,165 +900,6 @@ const Dashboard = () => {
           <Button onClick={handleCloseDeleteDialog}>Cancel</Button>
           <Button onClick={handleDelete} color="error" variant="contained">
             Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-      
-      {/* View Credential Dialog */}
-      <Dialog
-        open={openViewCredentialDialog}
-        onClose={handleCloseViewCredentialDialog}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>
-          {viewingCredential?.websiteName || 'Credential Details'}
-          <IconButton
-            aria-label="close"
-            onClick={handleCloseViewCredentialDialog}
-            sx={{
-              position: 'absolute',
-              right: 8,
-              top: 8,
-              color: (theme) => theme.palette.grey[500],
-            }}
-          >
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent>
-          {viewingCredential && (
-            <Box sx={{ mt: 2 }}>
-              {viewingCredential.url && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" component="div" gutterBottom>
-                    URL
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Typography variant="body1" sx={{ mr: 1, wordBreak: 'break-all' }}>
-                      {viewingCredential.url}
-                    </Typography>
-                    <IconButton 
-                      size="small" 
-                      onClick={() => copyToClipboard(viewingCredential.url)}
-                      color="primary"
-                    >
-                      <CopyIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </Box>
-              )}
-              
-              {viewingCredential.email && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" component="div" gutterBottom>
-                    Email
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Typography variant="body1" sx={{ mr: 1, wordBreak: 'break-all' }}>
-                      {viewingCredential.email}
-                    </Typography>
-                    <IconButton 
-                      size="small" 
-                      onClick={() => copyToClipboard(viewingCredential.email)}
-                      color="primary"
-                    >
-                      <CopyIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </Box>
-              )}
-              
-              {viewingCredential.userId && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" component="div" gutterBottom>
-                    Username
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Typography variant="body1" sx={{ mr: 1, wordBreak: 'break-all' }}>
-                      {viewingCredential.userId}
-                    </Typography>
-                    <IconButton 
-                      size="small" 
-                      onClick={() => copyToClipboard(viewingCredential.userId)}
-                      color="primary"
-                    >
-                      <CopyIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </Box>
-              )}
-              
-              {viewingCredential.password && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" component="div" gutterBottom>
-                    Password
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Typography variant="body1" sx={{ mr: 1, wordBreak: 'break-all' }}>
-                      {viewingCredential.password}
-                    </Typography>
-                    <IconButton 
-                      size="small" 
-                      onClick={() => copyToClipboard(viewingCredential.password)}
-                      color="primary"
-                    >
-                      <CopyIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </Box>
-              )}
-              
-              {viewingCredential.token && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" component="div" gutterBottom>
-                    Token/API Key
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Typography variant="body1" sx={{ mr: 1, wordBreak: 'break-all' }}>
-                      {viewingCredential.token}
-                    </Typography>
-                    <IconButton 
-                      size="small" 
-                      onClick={() => copyToClipboard(viewingCredential.token)}
-                      color="primary"
-                    >
-                      <CopyIcon fontSize="small" />
-                    </IconButton>
-                  </Box>
-                </Box>
-              )}
-              
-              {viewingCredential.Groups && viewingCredential.Groups.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" component="div" gutterBottom>
-                    Groups
-                  </Typography>
-                  <Typography variant="body1">
-                    {viewingCredential.Groups.map(g => g.name).join(', ')}
-                  </Typography>
-                </Box>
-              )}
-              
-              {viewingCredential.description && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="subtitle2" component="div" gutterBottom>
-                    Description
-                  </Typography>
-                  <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                    {viewingCredential.description}
-                  </Typography>
-                </Box>
-              )}
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button 
-            variant="contained" 
-            onClick={handleCloseViewCredentialDialog}
-          >
-            Close
           </Button>
         </DialogActions>
       </Dialog>
