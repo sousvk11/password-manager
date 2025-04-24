@@ -39,25 +39,35 @@ exports.getAllActivities = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Execute query with pagination
-    const activities = await Activity.find(query)
-      .sort({ timestamp: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate({
-        path: 'user',
-        select: 'name email'
-      });
+    const activities = await Activity.findAll({
+      where: query,
+      order: [['createdAt', 'DESC']],
+      offset: skip,
+      limit: limit,
+      include: [{
+        model: require('../models/user.model'),
+        attributes: ['id', 'name', 'email']
+      }]
+    });
+
+    console.log(`Found ${activities.length} activities`);
 
     // Get total count for pagination
-    const totalActivities = await Activity.countDocuments(query);
+    const totalActivities = await Activity.count({ where: query });
+    
+    // Format activities for response
+    const formattedActivities = activities.map(activity => {
+      const plainActivity = activity.get({ plain: true });
+      return plainActivity;
+    });
 
     res.status(200).json({
       status: 'success',
-      results: activities.length,
+      results: formattedActivities.length,
       totalPages: Math.ceil(totalActivities / limit),
       currentPage: page,
       data: {
-        activities
+        activities: formattedActivities
       }
     });
   } catch (err) {
@@ -112,21 +122,31 @@ exports.getUserActivities = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Execute query with pagination
-    const activities = await Activity.find(query)
-      .sort({ timestamp: -1 })
-      .skip(skip)
-      .limit(limit);
+    const activities = await Activity.findAll({
+      where: query,
+      order: [['createdAt', 'DESC']],
+      offset: skip,
+      limit: limit
+    });
+
+    console.log(`Found ${activities.length} activities`);
 
     // Get total count for pagination
-    const totalActivities = await Activity.countDocuments(query);
+    const totalActivities = await Activity.count({ where: query });
+    
+    // Format activities for response
+    const formattedActivities = activities.map(activity => {
+      const plainActivity = activity.get({ plain: true });
+      return plainActivity;
+    });
 
     res.status(200).json({
       status: 'success',
-      results: activities.length,
+      results: formattedActivities.length,
       totalPages: Math.ceil(totalActivities / limit),
       currentPage: page,
       data: {
-        activities
+        activities: formattedActivities
       }
     });
   } catch (err) {
@@ -218,25 +238,35 @@ exports.getResourceActivities = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Execute query with pagination
-    const activities = await Activity.find(query)
-      .sort({ timestamp: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate({
-        path: 'user',
-        select: 'name email'
-      });
+    const activities = await Activity.findAll({
+      where: query,
+      order: [['createdAt', 'DESC']],
+      offset: skip,
+      limit: limit,
+      include: [{
+        model: require('../models/user.model'),
+        attributes: ['id', 'name', 'email']
+      }]
+    });
+
+    console.log(`Found ${activities.length} activities`);
 
     // Get total count for pagination
-    const totalActivities = await Activity.countDocuments(query);
+    const totalActivities = await Activity.count({ where: query });
+    
+    // Format activities for response
+    const formattedActivities = activities.map(activity => {
+      const plainActivity = activity.get({ plain: true });
+      return plainActivity;
+    });
 
     res.status(200).json({
       status: 'success',
-      results: activities.length,
+      results: formattedActivities.length,
       totalPages: Math.ceil(totalActivities / limit),
       currentPage: page,
       data: {
-        activities
+        activities: formattedActivities
       }
     });
   } catch (err) {

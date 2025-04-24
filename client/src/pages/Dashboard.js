@@ -178,13 +178,15 @@ const Dashboard = () => {
       return;
     }
     
-    // Find the selected group
-    const group = groups.find(g => g.id === groupId);
+    // Find the selected group - handle both string and number IDs
+    const group = groups.find(g => g.id === parseInt(groupId, 10) || g.id === groupId);
     setSelectedGroup(group);
     
     // Filter credentials that belong to the selected group
     const filtered = credentials.filter(credential => 
-      credential.Groups && credential.Groups.some(g => g.id === groupId)
+      credential.Groups && credential.Groups.some(g => 
+        g.id === parseInt(groupId, 10) || g.id === groupId
+      )
     );
     
     setFilteredCredentials(filtered);
@@ -669,16 +671,56 @@ const Dashboard = () => {
     
     // Group filter dropdown
     const renderGroupFilter = () => (
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-        <FormControl sx={{ minWidth: 200, mr: 2 }}>
-          <InputLabel id="group-filter-label">Filter by Group</InputLabel>
+      <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, mt: 2 }}>
+        <Box sx={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'flex-start',
+          border: '1px solid #c4c4c4',
+          borderRadius: '4px',
+          width: 200,
+          mr: 2,
+          position: 'relative',
+          '&:hover': {
+            borderColor: '#000'
+          }
+        }}>
+          <Typography 
+            variant="caption" 
+            sx={{ 
+              position: 'absolute',
+              top: -10,
+              left: 10,
+              backgroundColor: 'white',
+              px: 0.5,
+              color: 'text.secondary',
+              fontSize: '0.75rem'
+            }}
+          >
+            Filter by Group
+          </Typography>
           <Select
-            labelId="group-filter-label"
             id="group-filter"
             value={selectedGroup ? selectedGroup.id : ''}
-            label="Filter by Group"
             onChange={(e) => filterCredentialsByGroup(e.target.value)}
             displayEmpty
+            variant="standard"
+            sx={{
+              width: '100%',
+              '& .MuiSelect-select': {
+                py: 1,
+                pl: 1.5,
+                pr: 4,
+                border: 'none'
+              },
+              '&:before, &:after': {
+                display: 'none'
+              },
+              '& .MuiSelect-icon': {
+                right: 8
+              }
+            }}
+            disableUnderline
           >
             <MenuItem value="">
               <em>All Credentials</em>
@@ -689,7 +731,7 @@ const Dashboard = () => {
               </MenuItem>
             ))}
           </Select>
-        </FormControl>
+        </Box>
         
         <Button
           variant="contained"
@@ -707,21 +749,25 @@ const Dashboard = () => {
         <Box>
           {renderGroupFilter()}
           
-          <Box sx={{ mt: 4, textAlign: 'center' }}>
+          <Box sx={{ textAlign: 'center', mt: 4 }}>
             <Typography variant="h6" color="text.secondary">
-              {selectedGroup 
-                ? `No credentials found in group "${selectedGroup.name}".` 
-                : 'No credentials found. Add your first credential to get started.'}
+              No credentials found
             </Typography>
-            <Button 
-              variant="contained" 
-              startIcon={<AddIcon />} 
-              sx={{ mt: 2 }}
-              onClick={() => handleOpenCredentialDialog()}
-              disabled={groups.length === 0}
-            >
-              Add New Credential
-            </Button>
+            {selectedGroup && (
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  No credentials in the selected group: <strong>{selectedGroup.name}</strong>
+                </Typography>
+                <Button 
+                  variant="text" 
+                  color="primary" 
+                  onClick={() => filterCredentialsByGroup('')}
+                  sx={{ mt: 2 }}
+                >
+                  Show All Credentials
+                </Button>
+              </>
+            )}
           </Box>
         </Box>
       );
@@ -1048,26 +1094,6 @@ const Dashboard = () => {
               value={credentialForm.groups}
               label="Groups"
               onChange={handleCredentialFormChange}
-              renderValue={(selected) => (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {selected.map((value) => {
-                    const group = groups.find(g => g.id === value);
-                    return (
-                      <Box key={value} component="span" sx={{ 
-                        bgcolor: 'primary.light', 
-                        color: 'white',
-                        px: 1,
-                        py: 0.5,
-                        borderRadius: 1,
-                        display: 'inline-flex',
-                        alignItems: 'center'
-                      }}>
-                        {group ? group.name : value}
-                      </Box>
-                    );
-                  })}
-                </Box>
-              )}
             >
               {groups.map((group) => (
                 <MenuItem key={group.id} value={group.id}>

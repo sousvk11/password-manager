@@ -57,7 +57,7 @@ const ActivityLogs = () => {
     try {
       let endpoint = isAdmin() 
         ? '/activities' 
-        : `/activities/user/${currentUser._id}`;
+        : `/activities/user/${currentUser.id}`;
       
       // Add query parameters
       const queryParams = new URLSearchParams();
@@ -69,10 +69,18 @@ const ActivityLogs = () => {
       if (filters.startDate) queryParams.append('startDate', filters.startDate);
       if (filters.endDate) queryParams.append('endDate', filters.endDate);
       
+      console.log(`Fetching activities from: ${endpoint}?${queryParams.toString()}`);
       const response = await axios.get(`${endpoint}?${queryParams.toString()}`);
+      console.log('Activity logs response:', response.data);
       
-      setActivities(response.data.data.activities);
-      setTotalCount(response.data.totalPages * rowsPerPage);
+      if (response.data && response.data.data && response.data.data.activities) {
+        setActivities(response.data.data.activities);
+        setTotalCount(response.data.totalPages * rowsPerPage);
+      } else {
+        setActivities([]);
+        setTotalCount(0);
+        console.error('Unexpected activity logs response format:', response.data);
+      }
     } catch (error) {
       console.error('Error fetching activities:', error);
       toast.error('Failed to load activity logs. Please try again.');
@@ -84,7 +92,7 @@ const ActivityLogs = () => {
   // Initial fetch
   useEffect(() => {
     fetchActivities();
-  }, [page, rowsPerPage, currentUser._id, isAdmin]);
+  }, [page, rowsPerPage, currentUser.id, isAdmin]);
   
   // Handle page change
   const handleChangePage = (event, newPage) => {
@@ -125,9 +133,19 @@ const ActivityLogs = () => {
     setShowFilters(!showFilters);
   };
   
-  // Format timestamp
+  // Helper functions
   const formatTimestamp = (timestamp) => {
     return new Date(timestamp).toLocaleString();
+  };
+
+  // Function to safely access nested properties
+  const safeGet = (obj, path, defaultValue = '') => {
+    try {
+      const result = path.split('.').reduce((o, key) => o && o[key], obj);
+      return result !== undefined ? result : defaultValue;
+    } catch (e) {
+      return defaultValue;
+    }
   };
   
   // Get action color
@@ -308,16 +326,16 @@ const ActivityLogs = () => {
                 </TableRow>
               ) : (
                 activities.map((activity) => (
-                  <TableRow key={activity._id} hover>
-                    <TableCell>{formatTimestamp(activity.timestamp)}</TableCell>
+                  <TableRow key={activity.id} hover>
+                    <TableCell>{formatTimestamp(activity.createdAt || activity.timestamp)}</TableCell>
                     <TableCell>
-                      {activity.user ? (
+                      {activity.User ? (
                         <>
                           <Typography variant="body2">
-                            {activity.user.name}
+                            {activity.User.name}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {activity.user.email}
+                            {activity.User.email}
                           </Typography>
                         </>
                       ) : (
@@ -342,31 +360,31 @@ const ActivityLogs = () => {
                     <TableCell>
                       {activity.details && (
                         <Box>
-                          {activity.details.websiteName && (
+                          {safeGet(activity, 'details.websiteName') && (
                             <Typography variant="body2">
-                              Website: {activity.details.websiteName}
+                              Website: {safeGet(activity, 'details.websiteName')}
                             </Typography>
                           )}
-                          {activity.details.name && (
+                          {safeGet(activity, 'details.name') && (
                             <Typography variant="body2">
-                              Name: {activity.details.name}
+                              Name: {safeGet(activity, 'details.name')}
                             </Typography>
                           )}
-                          {activity.details.groupName && (
+                          {safeGet(activity, 'details.groupName') && (
                             <Typography variant="body2">
-                              Group: {activity.details.groupName}
+                              Group: {safeGet(activity, 'details.groupName')}
                             </Typography>
                           )}
-                          {activity.details.fields && (
+                          {safeGet(activity, 'details.fields') && (
                             <Typography variant="body2">
-                              Fields: {Array.isArray(activity.details.fields) 
-                                ? activity.details.fields.join(', ') 
-                                : activity.details.fields}
+                              Fields: {Array.isArray(safeGet(activity, 'details.fields')) 
+                                ? safeGet(activity, 'details.fields').join(', ') 
+                                : safeGet(activity, 'details.fields')}
                             </Typography>
                           )}
-                          {activity.details.action && (
+                          {safeGet(activity, 'details.action') && (
                             <Typography variant="body2">
-                              Action: {activity.details.action}
+                              Action: {safeGet(activity, 'details.action')}
                             </Typography>
                           )}
                         </Box>
