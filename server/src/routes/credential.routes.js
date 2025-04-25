@@ -14,11 +14,19 @@ router.route('/')
 
 router.route('/:id')
   .get(credentialController.getCredential)
-  .patch(credentialController.updateCredential)
+  .put(credentialController.updateCredential)
   .delete(credentialController.deleteCredential);
+
+router.route('/:id/versions')
+  .get(credentialController.getCredentialVersionHistory);
 
 // Credential sharing
 router.post('/:id/share', credentialController.shareCredential);
 router.delete('/:id/share/:userId', credentialController.revokeAccess);
+
+// Credential access management
+router.get('/:id/access', credentialController.getCredentialAccesses);
+router.put('/:id/access/:userId', credentialController.updateCredentialAccess);
+router.delete('/:id/access/:userId', credentialController.revokeCredentialAccess);
 
 module.exports = router;

@@ -23,14 +23,17 @@ exports.getMe = async (req, res) => {
   }
 };
 
-// Get all users (admin only)
+// Get all users (accessible to all authenticated users)
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.findAll();
-
+    // All authenticated users can see other users
+    // This is needed for group management functionality
+    const users = await User.findAll({
+      attributes: { exclude: ['password'] }
+    });
+    
     res.status(200).json({
       status: 'success',
-      results: users.length,
       data: {
         users
       }

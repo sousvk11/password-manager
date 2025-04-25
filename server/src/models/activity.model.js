@@ -33,6 +33,8 @@ Activity.init({
       'delete_group',
       'add_user_to_group',
       'remove_user_from_group',
+      'remove_group_member',
+      'update_group_member_role',
       'change_user_permission',
       'share_credential',
       'revoke_credential_access'

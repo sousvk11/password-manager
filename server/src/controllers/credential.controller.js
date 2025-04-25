@@ -2,10 +2,12 @@ const Credential = require('../models/credential.model');
 const Group = require('../models/group.model');
 const User = require('../models/user.model');
 const Activity = require('../models/activity.model');
+const CredentialVersion = require('../models/credentialVersion.model');
 const { Op } = require('sequelize');
 const GroupMember = require('../models/groupMember.model');
 const CredentialShare = require('../models/credentialShare.model');
 const CredentialGroup = require('../models/credentialGroup.model');
+const CredentialAccess = require('../models/credentialAccess.model');
 
 // Helper function to check if a user has permission to access a credential
 const checkCredentialPermission = async (credentialId, userId, requiredPermission = 'view') => {
@@ -174,6 +176,22 @@ exports.createCredential = async (req, res) => {
       ownerId: req.user.id
     });
     
+    // Create initial version record
+    await CredentialVersion.create({
+      credentialId: credential.id,
+      websiteName: credential.websiteName,
+      url: credential.url || null,
+      email: credential.email || null,
+      userId: credential.userId || null,
+      password: credential.password,
+      token: credential.token || null,
+      description: credential.description || null,
+      versionNumber: 1,
+      changedBy: req.user.id,
+      changeType: 'create',
+      changedFields: Object.keys(credentialData)
+    });
+
     // Create credential-group associations
     const credentialGroups = [];
     for (let i = 0; i < groupIds.length; i++) {
@@ -202,7 +220,14 @@ exports.createCredential = async (req, res) => {
 
     // Fetch the credential with its groups to return in the response
     const credentialWithGroups = await Credential.findByPk(credential.id, {
-      include: [{ model: Group }]
+      include: [
+        { model: Group },
+        { 
+          model: User, 
+          as: 'owner',
+          attributes: ['id', 'name', 'email'] 
+        }
+      ]
     });
     
     res.status(201).json({
@@ -229,18 +254,28 @@ exports.getAllCredentials = async (req, res) => {
       groupFilter = { id: req.query.groupId };
     }
     
+    // Include owner information in all credential queries
+    const ownerInclude = {
+      model: User,
+      as: 'owner',
+      attributes: ['id', 'name', 'email']
+    };
+    
     // Super admin can access all credentials
     if (req.user.role === 'admin') {
       console.log('User is admin, fetching all credentials');
       
       try {
         const allCredentials = await Credential.findAll({
-          include: [{
-            model: Group,
-            attributes: ['id', 'name'],
-            through: { attributes: [] },
-            required: false
-          }]
+          include: [
+            {
+              model: Group,
+              attributes: ['id', 'name'],
+              through: { attributes: [] },
+              required: false
+            },
+            ownerInclude
+          ]
         });
         
         console.log('Found', allCredentials.length, 'credentials for admin');
@@ -288,28 +323,35 @@ exports.getAllCredentials = async (req, res) => {
       where: {
         ownerId: req.user.id
       },
-      include: [{
-        model: Group,
-        attributes: ['id', 'name'],
-        through: { attributes: [] }, // Exclude join table attributes
-        where: groupFilter,
-        required: Object.keys(groupFilter).length > 0
-      }]
+      include: [
+        {
+          model: Group,
+          attributes: ['id', 'name'],
+          through: { attributes: [] }, // Exclude join table attributes
+          where: groupFilter,
+          required: Object.keys(groupFilter).length > 0
+        },
+        ownerInclude
+      ]
     });
 
     // Find credentials shared directly with the user
     const sharedCredentials = await Credential.findAll({
-      include: [{
-        model: CredentialShare,
-        where: { userId: req.user.id },
-        required: true
-      }, {
-        model: Group,
-        attributes: ['id', 'name'],
-        through: { attributes: [] }, // Exclude join table attributes
-        where: groupFilter,
-        required: Object.keys(groupFilter).length > 0
-      }]
+      include: [
+        {
+          model: CredentialShare,
+          where: { userId: req.user.id },
+          required: true
+        }, 
+        {
+          model: Group,
+          attributes: ['id', 'name'],
+          through: { attributes: [] }, // Exclude join table attributes
+          where: groupFilter,
+          required: Object.keys(groupFilter).length > 0
+        },
+        ownerInclude
+      ]
     });
 
     // Find credentials in groups where user is a member
@@ -335,22 +377,44 @@ exports.getAllCredentials = async (req, res) => {
       where: {
         ownerId: { [Op.ne]: req.user.id } // Exclude owned credentials to avoid duplicates
       },
-      include: [{
-        model: Group,
-        attributes: ['id', 'name'],
-        through: { attributes: [] }, // Exclude join table attributes
-        where: {
-          ...groupFilter,
-          id: { [Op.in]: groupIds }
+      include: [
+        {
+          model: Group,
+          attributes: ['id', 'name'],
+          through: { attributes: [] }, // Exclude join table attributes
+          where: {
+            ...groupFilter,
+            id: { [Op.in]: groupIds }
+          },
+          required: true
         },
-        required: true
-      }]
+        ownerInclude
+      ]
     });
 
+    // Also find credentials where user has access through CredentialAccess
+    const accessCredentials = await Credential.findAll({
+      include: [
+        {
+          model: CredentialAccess,
+          where: { userId: req.user.id },
+          required: true
+        },
+        {
+          model: Group,
+          attributes: ['id', 'name'],
+          through: { attributes: [] },
+          where: groupFilter,
+          required: Object.keys(groupFilter).length > 0
+        },
+        ownerInclude
+      ]
+    });
+    
     // Combine all credentials and remove duplicates
     const allCredentialsMap = new Map();
     
-    [...ownedCredentials, ...sharedCredentials, ...groupCredentials].forEach(credential => {
+    [...ownedCredentials, ...sharedCredentials, ...groupCredentials, ...accessCredentials].forEach(credential => {
       if (!allCredentialsMap.has(credential.id)) {
         allCredentialsMap.set(credential.id, credential);
       }
@@ -417,10 +481,24 @@ exports.getCredential = async (req, res) => {
 
     // Use the credential from permission check or fetch it again if needed
     const credential = permissionCredential || await Credential.findByPk(req.params.id, {
-      include: [{
-        model: Group,
-        through: { attributes: [] } // Exclude join table attributes
-      }]
+      include: [
+        {
+          model: Group,
+          through: { attributes: [] } // Exclude join table attributes
+        },
+        {
+          model: User,
+          as: 'owner',
+          attributes: ['id', 'name', 'email']
+        },
+        {
+          model: CredentialAccess,
+          include: [{
+            model: User,
+            attributes: ['id', 'name', 'email']
+          }]
+        }
+      ]
     });
     
     if (!credential) {
@@ -511,34 +589,41 @@ exports.updateCredential = async (req, res) => {
       credential = permissionCredential;
     }
 
-    // Update the credential
-    await credential.update({ 
-      ...req.body, 
-      lastModified: Date.now() 
+    // Get previous version number
+    const latestVersion = await CredentialVersion.findOne({
+      where: { credentialId: credential.id },
+      order: [['versionNumber', 'DESC']]
     });
-
-    // Update group associations if groupIds is provided
-    if (req.body.groupIds) {
-      const groupIds = Array.isArray(req.body.groupIds) ? req.body.groupIds : [req.body.groupIds];
-      
-      // Delete existing associations
-      await CredentialGroup.destroy({
-        where: { credentialId: credential.id }
-      });
-      
-      // Create new associations
-      const credentialGroups = [];
-      for (let i = 0; i < groupIds.length; i++) {
-        credentialGroups.push({
-          credentialId: credential.id,
-          groupId: groupIds[i],
-          isPrimary: i === 0 // First group is primary
-        });
+    
+    const versionNumber = latestVersion ? latestVersion.versionNumber + 1 : 1;
+    
+    // Determine which fields changed
+    const changedFields = [];
+    for (const key in req.body) {
+      if (credential[key] !== req.body[key]) {
+        changedFields.push(key);
       }
-      
-      await CredentialGroup.bulkCreate(credentialGroups);
     }
-
+    
+    // Create new version record
+    await CredentialVersion.create({
+      credentialId: credential.id,
+      websiteName: req.body.websiteName || credential.websiteName,
+      url: req.body.url || credential.url,
+      email: req.body.email || credential.email,
+      userId: req.body.userId || credential.userId,
+      password: req.body.password || credential.password,
+      token: req.body.token || credential.token,
+      description: req.body.description || credential.description,
+      versionNumber: versionNumber,
+      changedBy: req.user.id,
+      changeType: 'update',
+      changedFields: changedFields
+    });
+    
+    // Update the credential
+    await credential.update(req.body);
+    
     // Log activity
     await Activity.create({
       userId: req.user.id,
@@ -628,6 +713,30 @@ exports.deleteCredential = async (req, res) => {
       ipAddress: req.ip,
       userAgent: req.headers['user-agent']
     });
+    
+    // Get previous version number
+    const latestVersion = await CredentialVersion.findOne({
+      where: { credentialId: credential.id },
+      order: [['versionNumber', 'DESC']]
+    });
+    
+    const versionNumber = latestVersion ? latestVersion.versionNumber + 1 : 1;
+    
+    // Create final version record marking deletion
+    await CredentialVersion.create({
+      credentialId: credential.id,
+      websiteName: credential.websiteName,
+      url: credential.url,
+      email: credential.email,
+      userId: credential.userId,
+      password: credential.password,
+      token: credential.token,
+      description: credential.description,
+      versionNumber: versionNumber,
+      changedBy: req.user.id,
+      changeType: 'delete',
+      changedFields: ['deleted']
+    });
 
     // Delete the credential
     await credential.destroy();
@@ -651,12 +760,19 @@ exports.deleteCredential = async (req, res) => {
 // Share a credential with a user
 exports.shareCredential = async (req, res) => {
   try {
-    const { userId, permission = 'view' } = req.body;
+    const { userId, accessType = 'view' } = req.body;
     
     if (!userId) {
       return res.status(400).json({
         status: 'fail',
         message: 'User ID is required'
+      });
+    }
+    
+    if (!['view', 'edit'].includes(accessType)) {
+      return res.status(400).json({
+        status: 'fail',
+        message: 'Access type must be either "view" or "edit"'
       });
     }
 
@@ -701,15 +817,16 @@ exports.shareCredential = async (req, res) => {
 
     if (existingShare) {
       // Update the permission if it's different
-      if (existingShare.permission !== permission) {
-        await existingShare.update({ permission });
+      if (existingShare.permission !== accessType) {
+        await existingShare.update({ permission: accessType });
       }
     } else {
       // Create a new share
-      await CredentialShare.create({
+      await CredentialAccess.create({
         credentialId: credential.id,
         userId,
-        permission
+        accessType,
+        grantedBy: req.user.id
       });
     }
 
@@ -722,7 +839,7 @@ exports.shareCredential = async (req, res) => {
       details: { 
         websiteName: credential.websiteName,
         sharedWith: userId,
-        permission
+        accessType
       },
       ipAddress: req.ip,
       userAgent: req.headers['user-agent']
@@ -730,7 +847,7 @@ exports.shareCredential = async (req, res) => {
 
     res.status(200).json({
       status: 'success',
-      message: `Credential shared with user successfully with ${permission} permission`
+      message: `Credential shared with user successfully with ${accessType} permission`
     });
   } catch (err) {
     console.error('Error sharing credential:', err);
@@ -776,7 +893,7 @@ exports.revokeAccess = async (req, res) => {
     }
 
     // Check if the credential is shared with the user
-    const share = await CredentialShare.findOne({
+    const share = await CredentialAccess.findOne({
       where: {
         credentialId: credential.id,
         userId
@@ -819,3 +936,285 @@ exports.revokeAccess = async (req, res) => {
     });
   }
 };
+
+// Get credential version history
+exports.getCredentialVersionHistory = async (req, res) => {
+  try {
+    // Get the credential
+    const credential = await Credential.findByPk(req.params.id);
+    
+    if (!credential) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Credential not found'
+      });
+    }
+    
+    // Allow access if user is the owner or admin
+    const isOwner = credential.ownerId === req.user.id;
+    const isAdmin = req.user.role === 'admin';
+    
+    if (!isOwner && !isAdmin) {
+      // If not owner or admin, check other permissions
+      const { hasPermission, message } = await checkCredentialPermission(
+        req.params.id, 
+        req.user.id,
+        'view'
+      );
+      
+      if (!hasPermission) {
+        return res.status(403).json({
+          status: 'fail',
+          message: message || 'You do not have permission to view this credential history'
+        });
+      }
+    }
+    
+    // Fetch all versions of this credential
+    const versions = await CredentialVersion.findAll({
+      where: { credentialId: req.params.id },
+      order: [['versionNumber', 'DESC']],
+      include: [{
+        model: User,
+        as: 'editor',
+        attributes: ['id', 'name', 'email']
+      }]
+    });
+
+    // Log activity
+    await Activity.create({
+      userId: req.user.id,
+      action: 'view_credential',
+      resourceType: 'credential',
+      resourceId: req.params.id,
+      details: { 
+        action: 'view_version_history',
+        count: versions.length
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+
+    res.status(200).json({
+      status: 'success',
+      results: versions.length,
+      data: {
+        versions
+      }
+    });
+  } catch (err) {
+    console.error('Error getting credential version history:', err);
+    res.status(400).json({
+      status: 'fail',
+      message: err.message
+    });
+  }
+};
+
+// Add new endpoints for credential access management
+exports.getCredentialAccesses = async (req, res) => {
+  try {
+    // Get the credential
+    const credential = await Credential.findByPk(req.params.id);
+    
+    if (!credential) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Credential not found'
+      });
+    }
+    
+    // Allow access if user is the owner or admin
+    const isOwner = credential.ownerId === req.user.id;
+    const isAdmin = req.user.role === 'admin';
+    
+    if (!isOwner && !isAdmin) {
+      // If not owner or admin, check other permissions
+      const { hasPermission, message } = await checkCredentialPermission(
+        req.params.id, 
+        req.user.id,
+        'edit'
+      );
+      
+      if (!hasPermission) {
+        return res.status(403).json({
+          status: 'fail',
+          message: message || 'You do not have permission to view this credential\'s access list'
+        });
+      }
+    }
+    
+    // Fetch all accesses for this credential
+    const accesses = await CredentialAccess.findAll({
+      where: { credentialId: req.params.id },
+      include: [
+        {
+          model: User,
+          attributes: ['id', 'name', 'email']
+        },
+        {
+          model: User,
+          as: 'grantor',
+          attributes: ['id', 'name', 'email']
+        }
+      ]
+    });
+
+    res.status(200).json({
+      status: 'success',
+      results: accesses.length,
+      data: {
+        accesses
+      }
+    });
+  } catch (err) {
+    console.error('Error getting credential accesses:', err);
+    res.status(400).json({
+      status: 'fail',
+      message: err.message
+    });
+  }
+};
+
+exports.updateCredentialAccess = async (req, res) => {
+  try {
+    const { accessType } = req.body;
+    
+    if (!['view', 'edit'].includes(accessType)) {
+      return res.status(400).json({
+        status: 'fail',
+        message: 'Access type must be either "view" or "edit"'
+      });
+    }
+
+    // Check if user has permission to update the credential access
+    const credential = await Credential.findByPk(req.params.id);
+    
+    if (!credential) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Credential not found'
+      });
+    }
+    
+    // Only the owner or admin can update access
+    if (credential.ownerId !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({
+        status: 'fail',
+        message: 'Only the credential owner or admin can update access'
+      });
+    }
+
+    // Find the access record
+    const access = await CredentialAccess.findOne({
+      where: { 
+        credentialId: req.params.id,
+        userId: req.params.userId
+      }
+    });
+    
+    if (!access) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Access record not found'
+      });
+    }
+
+    // Update the access type
+    await access.update({ 
+      accessType,
+      grantedBy: req.user.id
+    });
+
+    // Log activity
+    await Activity.create({
+      userId: req.user.id,
+      action: 'change_user_permission',
+      resourceType: 'credential',
+      resourceId: req.params.id,
+      details: { 
+        userId: req.params.userId,
+        accessType
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        access
+      }
+    });
+  } catch (err) {
+    console.error('Error updating credential access:', err);
+    res.status(400).json({
+      status: 'fail',
+      message: err.message
+    });
+  }
+};
+
+exports.revokeCredentialAccess = async (req, res) => {
+  try {
+    // Check if user has permission to revoke the credential access
+    const credential = await Credential.findByPk(req.params.id);
+    
+    if (!credential) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Credential not found'
+      });
+    }
+    
+    // Only the owner or admin can revoke access
+    if (credential.ownerId !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({
+        status: 'fail',
+        message: 'Only the credential owner or admin can revoke access'
+      });
+    }
+
+    // Find the access record
+    const access = await CredentialAccess.findOne({
+      where: { 
+        credentialId: req.params.id,
+        userId: req.params.userId
+      }
+    });
+    
+    if (!access) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Access record not found'
+      });
+    }
+
+    // Delete the access record
+    await access.destroy();
+
+    // Log activity
+    await Activity.create({
+      userId: req.user.id,
+      action: 'revoke_credential_access',
+      resourceType: 'credential',
+      resourceId: req.params.id,
+      details: { userId: req.params.userId },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Access revoked successfully'
+    });
+  } catch (err) {
+    console.error('Error revoking credential access:', err);
+    res.status(400).json({
+      status: 'fail',
+      message: err.message
+    });
+  }
+};
+
+module.exports = exports;

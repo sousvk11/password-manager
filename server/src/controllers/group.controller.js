@@ -47,7 +47,22 @@ exports.getAllGroups = async (req, res) => {
     console.log('Getting all groups for user:', req.user.id, 'Role:', req.user.role);
     
     // Fetch all groups
-    const allGroups = await Group.findAll();
+    const allGroups = await Group.findAll({
+      include: [
+        {
+          model: User,
+          as: 'members',
+          attributes: ['id', 'name', 'email'],
+          through: { attributes: ['role'] }
+        },
+        {
+          model: User,
+          as: 'owner',
+          attributes: ['id', 'name', 'email']
+        }
+      ],
+      subQuery: false
+    });
     console.log('Found', allGroups.length, 'total groups');
     
     // Mark which groups are owned by the current user
@@ -89,18 +104,24 @@ exports.getGroup = async (req, res) => {
   try {
     // Find the group with its members
     const group = await Group.findByPk(req.params.id, {
-      include: [{
-        model: GroupMember,
-        include: [{
+      include: [
+        {
           model: User,
+          as: 'members',
+          attributes: ['id', 'name', 'email'],
+          through: { attributes: ['role'] }
+        }, {
+          // Include credentials directly using the many-to-many relationship
+          model: Credential,
+          attributes: ['id', 'websiteName', 'url', 'email', 'ownerId', 'lastModified'],
+          through: { attributes: [] } // Don't include the join table attributes
+        },
+        {
+          model: User,
+          as: 'owner',
           attributes: ['id', 'name', 'email']
-        }]
-      }, {
-        // Include credentials directly using the many-to-many relationship
-        model: Credential,
-        attributes: ['id', 'websiteName', 'url', 'email', 'ownerId', 'lastModified'],
-        through: { attributes: [] } // Don't include the join table attributes
-      }]
+        }
+      ]
     });
     
     if (!group) {
@@ -115,8 +136,8 @@ exports.getGroup = async (req, res) => {
     
     // Check if user has access to the group
     const isOwner = group.ownerId === req.user.id;
-    const isMember = group.GroupMembers && 
-      group.GroupMembers.some(member => member.userId === req.user.id);
+    const isMember = group.members && 
+      group.members.some(member => member.userId === req.user.id);
 
     // Super admin or owner or member can access the group
     if (!isAdmin && !isOwner && !isMember) {
@@ -281,15 +302,29 @@ exports.addUserToGroup = async (req, res) => {
   try {
     const { userId, role } = req.body;
     
-    if (!userId || !['viewer', 'editor', 'admin'].includes(role)) {
+    if (!userId || !['viewer', 'editor', 'admin', 'member'].includes(role)) {
       return res.status(400).json({
         status: 'fail',
-        message: 'Please provide a valid userId and role (viewer, editor, or admin)'
+        message: 'Please provide a valid userId and role (member, viewer, editor, or admin)'
       });
     }
 
     // Check if group exists
-    const group = await Group.findByPk(req.params.id);
+    const group = await Group.findByPk(req.params.id, {
+      include: [
+        {
+          model: User,
+          as: 'members',
+          attributes: ['id', 'name', 'email'],
+          through: { attributes: ['role'] }
+        },
+        {
+          model: User,
+          as: 'owner',
+          attributes: ['id', 'name', 'email']
+        }
+      ]
+    });
     
     if (!group) {
       return res.status(404).json({
@@ -299,7 +334,6 @@ exports.addUserToGroup = async (req, res) => {
     }
 
     // Check if user is the owner or an admin
-    const GroupMember = require('../models/groupMember.model');
     const isOwner = group.ownerId === req.user.id;
     
     // Check if current user is an admin of the group
@@ -311,12 +345,16 @@ exports.addUserToGroup = async (req, res) => {
       }
     });
     
-    const isAdmin = !!adminMember;
+    // Check if current user is a system admin
+    const currentUser = await User.findByPk(req.user.id);
+    const isSystemAdmin = currentUser && currentUser.role === 'admin';
+    
+    const isGroupAdmin = !!adminMember;
 
-    if (!isOwner && !isAdmin) {
+    if (!isOwner && !isGroupAdmin && !isSystemAdmin) {
       return res.status(403).json({
         status: 'fail',
-        message: 'Only the group owner or admin can add users'
+        message: 'Only the group owner, group admin, or system admin can add users'
       });
     }
 
@@ -368,13 +406,19 @@ exports.addUserToGroup = async (req, res) => {
 
     // Get updated group with members
     const updatedGroup = await Group.findByPk(group.id, {
-      include: [{
-        model: GroupMember,
-        include: [{
+      include: [
+        {
           model: User,
+          as: 'members',
+          attributes: ['id', 'name', 'email'],
+          through: { attributes: ['role'] }
+        },
+        {
+          model: User,
+          as: 'owner',
           attributes: ['id', 'name', 'email']
-        }]
-      }]
+        }
+      ]
     });
 
     res.status(200).json({
@@ -404,7 +448,21 @@ exports.removeUserFromGroup = async (req, res) => {
     }
 
     // Check if group exists
-    const group = await Group.findByPk(req.params.id);
+    const group = await Group.findByPk(req.params.id, {
+      include: [
+        {
+          model: User,
+          as: 'members',
+          attributes: ['id', 'name', 'email'],
+          through: { attributes: ['role'] }
+        },
+        {
+          model: User,
+          as: 'owner',
+          attributes: ['id', 'name', 'email']
+        }
+      ]
+    });
     
     if (!group) {
       return res.status(404).json({
@@ -414,7 +472,6 @@ exports.removeUserFromGroup = async (req, res) => {
     }
 
     // Check if user is the owner or an admin
-    const GroupMember = require('../models/groupMember.model');
     const isOwner = group.ownerId === req.user.id;
     
     // Check if current user is an admin of the group
@@ -477,13 +534,19 @@ exports.removeUserFromGroup = async (req, res) => {
 
     // Get updated group with members
     const updatedGroup = await Group.findByPk(group.id, {
-      include: [{
-        model: GroupMember,
-        include: [{
+      include: [
+        {
           model: User,
+          as: 'members',
+          attributes: ['id', 'name', 'email'],
+          through: { attributes: ['role'] }
+        },
+        {
+          model: User,
+          as: 'owner',
           attributes: ['id', 'name', 'email']
-        }]
-      }]
+        }
+      ]
     });
 
     res.status(200).json({
@@ -499,3 +562,346 @@ exports.removeUserFromGroup = async (req, res) => {
     });
   }
 };
+
+// Get all members of a group
+exports.getGroupMembers = async (req, res) => {
+  try {
+    // Check if group exists
+    const group = await Group.findByPk(req.params.id, {
+      include: [
+        {
+          model: User,
+          as: 'members',
+          attributes: ['id', 'name', 'email'],
+          through: { attributes: ['role'] }
+        },
+        {
+          model: User,
+          as: 'owner',
+          attributes: ['id', 'name', 'email']
+        }
+      ],
+      subQuery: false
+    });
+    
+    if (!group) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Group not found'
+      });
+    }
+    
+    // Check if user has permission to view the group members
+    const isAdmin = req.user.role === 'admin';
+    const isOwner = group.ownerId === req.user.id;
+    const isMember = group.members && 
+      group.members.some(member => member.id === req.user.id);
+    
+    if (!isAdmin && !isOwner && !isMember) {
+      return res.status(403).json({
+        status: 'fail',
+        message: 'You do not have permission to view this group\'s members'
+      });
+    }
+    
+    // Log the members for debugging
+    console.log('Group members found:', JSON.stringify(group.members));
+    
+    res.status(200).json({
+      status: 'success',
+      data: {
+        members: group.members || []
+      }
+    });
+  } catch (err) {
+    console.error('Error getting group members:', err);
+    res.status(400).json({
+      status: 'fail',
+      message: err.message
+    });
+  }
+};
+
+// Add a member to a group
+exports.addGroupMember = async (req, res) => {
+  try {
+    const { userId, role = 'member' } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({
+        status: 'fail',
+        message: 'User ID is required'
+      });
+    }
+    
+    if (!['member', 'admin'].includes(role)) {
+      return res.status(400).json({
+        status: 'fail',
+        message: 'Role must be either "member" or "admin"'
+      });
+    }
+    
+    // Check if group exists
+    const group = await Group.findByPk(req.params.id);
+    
+    if (!group) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Group not found'
+      });
+    }
+    
+    // Check if user has permission to add members
+    const isAdmin = req.user.role === 'admin';
+    const isOwner = group.ownerId === req.user.id;
+    
+    if (!isAdmin && !isOwner) {
+      const groupMember = await GroupMember.findOne({
+        where: {
+          groupId: group.id,
+          userId: req.user.id,
+          role: 'admin'
+        }
+      });
+      
+      if (!groupMember) {
+        return res.status(403).json({
+          status: 'fail',
+          message: 'Only group owners and admins can add members'
+        });
+      }
+    }
+    
+    // Check if user exists
+    const user = await User.findByPk(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'User not found'
+      });
+    }
+    
+    // Check if user is already a member
+    const existingMember = await GroupMember.findOne({
+      where: {
+        groupId: group.id,
+        userId
+      }
+    });
+    
+    if (existingMember) {
+      return res.status(400).json({
+        status: 'fail',
+        message: 'User is already a member of this group'
+      });
+    }
+    
+    // Add user to group
+    const groupMember = await GroupMember.create({
+      groupId: group.id,
+      userId,
+      role
+    });
+    
+    // Log activity
+    await Activity.create({
+      userId: req.user.id,
+      action: 'add_group_member',
+      resourceType: 'group',
+      resourceId: group.id,
+      details: { 
+        groupName: group.name,
+        addedUserId: userId,
+        role
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+    
+    res.status(201).json({
+      status: 'success',
+      data: {
+        groupMember
+      }
+    });
+  } catch (err) {
+    console.error('Error adding group member:', err);
+    res.status(400).json({
+      status: 'fail',
+      message: err.message
+    });
+  }
+};
+
+// Update a group member's role
+exports.updateGroupMember = async (req, res) => {
+  try {
+    const { role } = req.body;
+    
+    if (!['viewer', 'editor', 'admin', 'member'].includes(role)) {
+      return res.status(400).json({
+        status: 'fail',
+        message: 'Role must be either "viewer", "editor", "member", or "admin"'
+      });
+    }
+    
+    // Check if group exists
+    const group = await Group.findByPk(req.params.id);
+    
+    if (!group) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Group not found'
+      });
+    }
+    
+    // Check if user has permission to update members
+    const isAdmin = req.user.role === 'admin';
+    const isOwner = group.ownerId === req.user.id;
+    
+    if (!isAdmin && !isOwner) {
+      const groupMember = await GroupMember.findOne({
+        where: {
+          groupId: group.id,
+          userId: req.user.id,
+          role: 'admin'
+        }
+      });
+      
+      if (!groupMember) {
+        return res.status(403).json({
+          status: 'fail',
+          message: 'Only group owners and admins can update member roles'
+        });
+      }
+    }
+    
+    // Check if member exists
+    const member = await GroupMember.findOne({
+      where: {
+        groupId: group.id,
+        userId: req.params.userId
+      }
+    });
+    
+    if (!member) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Member not found'
+      });
+    }
+    
+    // Update member role
+    await member.update({ role });
+    
+    // Log activity
+    await Activity.create({
+      userId: req.user.id,
+      action: 'update_group_member_role',
+      resourceType: 'group',
+      resourceId: group.id,
+      details: { 
+        groupName: group.name,
+        updatedUserId: req.params.userId,
+        role
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+    
+    res.status(200).json({
+      status: 'success',
+      data: {
+        member
+      }
+    });
+  } catch (err) {
+    console.error('Error updating group member:', err);
+    res.status(400).json({
+      status: 'fail',
+      message: err.message
+    });
+  }
+};
+
+// Remove a member from a group
+exports.removeGroupMember = async (req, res) => {
+  try {
+    // Check if group exists
+    const group = await Group.findByPk(req.params.id);
+    
+    if (!group) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Group not found'
+      });
+    }
+    
+    // Check if user has permission to remove members
+    const isSystemAdmin = req.user.role === 'admin';
+    const isOwner = group.ownerId === req.user.id;
+    
+    if (!isSystemAdmin && !isOwner) {
+      const groupMember = await GroupMember.findOne({
+        where: {
+          groupId: group.id,
+          userId: req.user.id,
+          role: 'admin'
+        }
+      });
+      
+      if (!groupMember) {
+        return res.status(403).json({
+          status: 'fail',
+          message: 'Only group owners, group admins, or system admins can remove members'
+        });
+      }
+    }
+    
+    // Check if member exists
+    const member = await GroupMember.findOne({
+      where: {
+        groupId: group.id,
+        userId: req.params.userId
+      }
+    });
+    
+    if (!member) {
+      return res.status(404).json({
+        status: 'fail',
+        message: 'Member not found'
+      });
+    }
+    
+    // Remove member
+    await member.destroy();
+    
+    // Log activity
+    await Activity.create({
+      userId: req.user.id,
+      action: 'remove_group_member',
+      resourceType: 'group',
+      resourceId: group.id,
+      details: { 
+        groupName: group.name,
+        removedUserId: req.params.userId
+      },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+    
+    res.status(200).json({
+      status: 'success',
+      message: 'Member removed successfully'
+    });
+  } catch (err) {
+    console.error('Error removing group member:', err);
+    res.status(400).json({
+      status: 'fail',
+      message: err.message
+    });
+  }
+};
+
+module.exports = exports;

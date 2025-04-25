@@ -12,10 +12,12 @@ router.get('/me', userController.getMe);
 router.patch('/updateMe', userController.updateMe);
 router.patch('/updatePassword', userController.updatePassword);
 
+// Route accessible to all authenticated users
+router.get('/', userController.getAllUsers);
+
 // Admin only routes
 router.use(authController.restrictTo('admin'));
 router.route('/')
-  .get(userController.getAllUsers)
   .post(userController.createUser);
 
 router.route('/:id')

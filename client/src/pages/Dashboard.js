@@ -34,11 +34,14 @@ import {
   Group as GroupIcon,
   VpnKey as VpnKeyIcon,
   VisibilityOff as VisibilityOffIcon,
-  Close as CloseIcon
+  Close as CloseIcon,
+  History as HistoryIcon
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
-import axios from 'axios';
+import axios from '../utils/axiosConfig';
 import AuthContext from '../context/AuthContext';
+import CredentialVersionHistory from '../components/CredentialVersionHistory';
+import GroupAccessManager from '../components/GroupAccessManager';
 
 const Dashboard = () => {
   const { currentUser } = useContext(AuthContext);
@@ -60,6 +63,10 @@ const Dashboard = () => {
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [openViewCredentialDialog, setOpenViewCredentialDialog] = useState(false);
   const [viewingCredential, setViewingCredential] = useState(null);
+  const [openVersionHistoryDialog, setOpenVersionHistoryDialog] = useState(false);
+  const [openGroupAccessManagerDialog, setOpenGroupAccessManagerDialog] = useState(false);
+  const [selectedCredentialId, setSelectedCredentialId] = useState(null);
+  const [selectedGroupId, setSelectedGroupId] = useState(null);
   
   // Form states
   const [groupForm, setGroupForm] = useState({ name: '', description: '' });
@@ -87,8 +94,14 @@ const Dashboard = () => {
     }
   }, [searchParams]);
   
-  // Fetch data on component mount
+  // Effect to run on component mount
   useEffect(() => {
+    // Add global refresh function that components can call
+    window.refreshDashboard = () => {
+      console.log('Dashboard refresh requested');
+      fetchData();
+    };
+    
     const fetchData = async () => {
       setLoading(true);
       try {
@@ -115,11 +128,42 @@ const Dashboard = () => {
           allGroups = groupsResponse.data.data;
         }
         
-        setGroups(allGroups);
+        console.log('All groups before filtering:', allGroups);
         
-        // Filter groups created by the current user
-        const userGroups = allGroups.filter(group => group.UserId === currentUser?.id || group.ownerId === currentUser?.id);
-        setMyGroups(userGroups);
+        // Check if user is admin
+        const isAdmin = currentUser && currentUser.role === 'admin';
+        console.log('Current user is admin:', isAdmin);
+        
+        if (isAdmin) {
+          // Admin users can see all groups
+          console.log('Admin user - showing all groups');
+          setGroups(allGroups);
+        } else {
+          // Regular users can only see groups they own or are members of
+          const userMemberGroups = allGroups.filter(group => {
+            // Check if user is owner
+            const isOwner = group.UserId === currentUser?.id || group.ownerId === currentUser?.id;
+            
+            // Check if user is a member
+            const isMember = group.members && Array.isArray(group.members) && 
+              group.members.some(member => {
+                const memberId = member.id || member.userId || (member.User && member.User.id);
+                return memberId === currentUser?.id;
+              });
+              
+            return isOwner || isMember;
+          });
+          
+          console.log('Groups where user is owner or member:', userMemberGroups);
+          setGroups(userMemberGroups);
+        }
+        
+        // Filter groups created/owned by the current user only
+        const userOwnedGroups = allGroups.filter(group => 
+          group.UserId === currentUser?.id || group.ownerId === currentUser?.id
+        );
+        console.log('Groups owned by user:', userOwnedGroups);
+        setMyGroups(userOwnedGroups);
         
         console.log('Fetching credentials...');
         // Fetch credentials
@@ -155,6 +199,11 @@ const Dashboard = () => {
     };
     
     fetchData();
+    
+    // Cleanup function to remove global refresh function
+    return () => {
+      delete window.refreshDashboard;
+    };
   }, []);
   
   // Handle tab change
@@ -239,7 +288,7 @@ const Dashboard = () => {
     }
     setOpenCredentialDialog(true);
   };
-  
+
   const handleCloseCredentialDialog = () => {
     setOpenCredentialDialog(false);
     setCredentialForm({
@@ -302,11 +351,42 @@ const Dashboard = () => {
             allGroups = refreshResponse.data.data;
           }
           
-          setGroups(allGroups);
+          console.log('All groups before filtering:', allGroups);
           
-          // Filter groups created by the current user
-          const userGroups = allGroups.filter(group => group.UserId === currentUser?.id || group.ownerId === currentUser?.id);
-          setMyGroups(userGroups);
+          // Check if user is admin
+          const isAdmin = currentUser && currentUser.role === 'admin';
+          console.log('Current user is admin:', isAdmin);
+          
+          if (isAdmin) {
+            // Admin users can see all groups
+            console.log('Admin user - showing all groups');
+            setGroups(allGroups);
+          } else {
+            // Regular users can only see groups they own or are members of
+            const userMemberGroups = allGroups.filter(group => {
+              // Check if user is owner
+              const isOwner = group.UserId === currentUser?.id || group.ownerId === currentUser?.id;
+              
+              // Check if user is a member
+              const isMember = group.members && Array.isArray(group.members) && 
+                group.members.some(member => {
+                  const memberId = member.id || member.userId || (member.User && member.User.id);
+                  return memberId === currentUser?.id;
+                });
+                
+              return isOwner || isMember;
+            });
+            
+            console.log('Groups where user is owner or member:', userMemberGroups);
+            setGroups(userMemberGroups);
+          }
+          
+          // Filter groups created/owned by the current user only
+          const userOwnedGroups = allGroups.filter(group => 
+            group.UserId === currentUser?.id || group.ownerId === currentUser?.id
+          );
+          console.log('Groups owned by user:', userOwnedGroups);
+          setMyGroups(userOwnedGroups);
         } catch (refreshError) {
           console.error('Error refreshing groups:', refreshError);
           // Even if refresh fails, we'll update with the data we have
@@ -367,7 +447,7 @@ const Dashboard = () => {
             setFilteredCredentials(refreshResponse.data.credentials);
           }
         } catch (refreshError) {
-          console.error('Error refreshing credentials:', refreshError);
+          console.error('Error refreshing credentials after update:', refreshError);
           // Even if refresh fails, we consider the operation successful
           // We'll just close the dialog and let the user refresh manually if needed
         }
@@ -411,11 +491,42 @@ const Dashboard = () => {
               allGroups = refreshResponse.data.data;
             }
             
-            setGroups(allGroups);
+            console.log('All groups before filtering:', allGroups);
             
-            // Filter groups created by the current user
-            const userGroups = allGroups.filter(group => group.UserId === currentUser?.id || group.ownerId === currentUser?.id);
-            setMyGroups(userGroups);
+            // Check if user is admin
+            const isAdmin = currentUser && currentUser.role === 'admin';
+            console.log('Current user is admin:', isAdmin);
+            
+            if (isAdmin) {
+              // Admin users can see all groups
+              console.log('Admin user - showing all groups');
+              setGroups(allGroups);
+            } else {
+              // Regular users can only see groups they own or are members of
+              const userMemberGroups = allGroups.filter(group => {
+                // Check if user is owner
+                const isOwner = group.UserId === currentUser?.id || group.ownerId === currentUser?.id;
+                
+                // Check if user is a member
+                const isMember = group.members && Array.isArray(group.members) && 
+                  group.members.some(member => {
+                    const memberId = member.id || member.userId || (member.User && member.User.id);
+                    return memberId === currentUser?.id;
+                  });
+                  
+                return isOwner || isMember;
+              });
+              
+              console.log('Groups where user is owner or member:', userMemberGroups);
+              setGroups(userMemberGroups);
+            }
+            
+            // Filter groups created/owned by the current user only
+            const userOwnedGroups = allGroups.filter(group => 
+              group.UserId === currentUser?.id || group.ownerId === currentUser?.id
+            );
+            console.log('Groups owned by user:', userOwnedGroups);
+            setMyGroups(userOwnedGroups);
           } catch (refreshError) {
             console.error('Error refreshing groups after deletion:', refreshError);
             // Fallback to filtering locally
@@ -445,16 +556,38 @@ const Dashboard = () => {
     }
   };
   
+  // Function to fetch credentials
+  const fetchCredentials = async () => {
+    setLoading(true);
+    try {
+      // Get decrypted credentials
+      const response = await axios.get('/credentials?decrypted=true');
+      
+      if (response.data && response.data.data && response.data.data.credentials) {
+        setCredentials(response.data.data.credentials);
+        setFilteredCredentials(response.data.data.credentials);
+      } else if (response.data && response.data.credentials) {
+        setCredentials(response.data.credentials);
+        setFilteredCredentials(response.data.credentials);
+      }
+    } catch (error) {
+      console.error('Error fetching credentials:', error);
+      toast.error('Failed to load credentials. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
   // Set initial filtered credentials
   useEffect(() => {
     if (selectedGroup) {
       // If a group is selected, apply the filter
-      filterCredentialsByGroup(selectedGroup.id);
+      filterCredentialsByGroup(selectedGroup);
     } else {
       // Otherwise show all credentials
       setFilteredCredentials(credentials);
     }
-  }, [credentials]);
+  }, [selectedGroup, credentials]);
   
   // Copy to clipboard
   const copyToClipboard = (text) => {
@@ -490,6 +623,59 @@ const Dashboard = () => {
   const handleCloseViewCredentialDialog = () => {
     setOpenViewCredentialDialog(false);
     setViewingCredential(null);
+  };
+  
+  // Version history dialog handlers
+  const handleOpenVersionHistoryDialog = (credentialId) => {
+    setSelectedCredentialId(credentialId);
+    setOpenVersionHistoryDialog(true);
+  };
+  
+  const handleCloseVersionHistoryDialog = () => {
+    setOpenVersionHistoryDialog(false);
+    setSelectedCredentialId(null);
+  };
+  
+  // Group access manager dialog handlers
+  const handleOpenGroupAccessManagerDialog = (groupId) => {
+    setSelectedGroupId(groupId);
+    setOpenGroupAccessManagerDialog(true);
+  };
+  
+  const handleCloseGroupAccessManagerDialog = () => {
+    setOpenGroupAccessManagerDialog(false);
+    setSelectedGroupId(null);
+  };
+  
+  // Handle restoring a previous version
+  const handleRestoreVersion = async (credential) => {
+    try {
+      const response = await axios.put(`/credentials/${credential.id}`, credential);
+      
+      if (response.data && (response.data.success || response.data.status === 'success')) {
+        toast.success('Credential version restored successfully!');
+        
+        // Refresh credentials
+        try {
+          const refreshResponse = await axios.get('/credentials?decrypted=true');
+          
+          if (refreshResponse.data && refreshResponse.data.data && refreshResponse.data.data.credentials) {
+            setCredentials(refreshResponse.data.data.credentials);
+            setFilteredCredentials(refreshResponse.data.data.credentials);
+          } else if (refreshResponse.data && refreshResponse.data.credentials) {
+            setCredentials(refreshResponse.data.credentials);
+            setFilteredCredentials(refreshResponse.data.credentials);
+          }
+        } catch (refreshError) {
+          console.error('Error refreshing credentials after restore:', refreshError);
+        }
+      } else {
+        toast.error(response.data.message || 'Failed to restore credential version.');
+      }
+    } catch (error) {
+      console.error('Error restoring credential version:', error);
+      toast.error(error.response?.data?.message || 'Failed to restore credential version.');
+    }
   };
   
   // Render my groups tab
@@ -530,6 +716,8 @@ const Dashboard = () => {
                 display: 'flex', 
                 flexDirection: 'column',
                 transition: 'all 0.3s',
+                bgcolor: group.ownerId === currentUser.id ? 'rgba(255, 0, 102, 0.15)' : 'rgba(255, 182, 193, 0.3)',
+                borderLeft: group.ownerId === currentUser.id ? '4px solid #ff0066' : '4px solid #ffb6c1',
                 '&:hover': {
                   transform: 'translateY(-5px)',
                   boxShadow: 4
@@ -541,13 +729,71 @@ const Dashboard = () => {
                   <Typography variant="h6" component="div">
                     {group.name}
                   </Typography>
-                  <GroupIcon color="primary" />
                 </Box>
+                
+                {group.owner && (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    Owner: {group.owner.name}
+                  </Typography>
+                )}
                 
                 {group.description && (
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     {group.description}
                   </Typography>
+                )}
+                
+                {group.members && group.members.length > 0 && (
+                  <Box sx={{ mt: 1, mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                      Members: {group.members.length}
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                      {group.members.slice(0, 3).map((member) => (
+                        <Tooltip 
+                          key={member.id} 
+                          title={`${member.name} (${member.email}) - ${member.GroupMember?.role || 'member'}`}
+                        >
+                          <Box
+                            sx={{
+                              bgcolor: 'primary.light',
+                              color: 'primary.contrastText',
+                              borderRadius: '50%',
+                              width: 24,
+                              height: 24,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.75rem',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            {member.name.charAt(0).toUpperCase()}
+                          </Box>
+                        </Tooltip>
+                      ))}
+                      {group.members.length > 3 && (
+                        <Tooltip title={`${group.members.length - 3} more members`}>
+                          <Box
+                            sx={{
+                              bgcolor: 'grey.400',
+                              color: 'grey.900',
+                              borderRadius: '50%',
+                              width: 24,
+                              height: 24,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.75rem',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            +{group.members.length - 3}
+                          </Box>
+                        </Tooltip>
+                      )}
+                    </Box>
+                  </Box>
                 )}
                 
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
@@ -558,6 +804,15 @@ const Dashboard = () => {
                       onClick={() => handleOpenGroupDialog(group)}
                     >
                       <EditIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Manage Members">
+                    <IconButton 
+                      size="small" 
+                      color="info"
+                      onClick={() => handleOpenGroupAccessManagerDialog(group.id)}
+                    >
+                      <GroupIcon />
                     </IconButton>
                   </Tooltip>
                 </Box>
@@ -607,6 +862,8 @@ const Dashboard = () => {
                 display: 'flex', 
                 flexDirection: 'column',
                 transition: 'all 0.3s',
+                bgcolor: group.ownerId === currentUser.id ? 'rgba(255, 0, 102, 0.15)' : 'rgba(255, 182, 193, 0.3)',
+                borderLeft: group.ownerId === currentUser.id ? '4px solid #ff0066' : '4px solid #ffb6c1',
                 '&:hover': {
                   transform: 'translateY(-5px)',
                   boxShadow: 4
@@ -618,13 +875,71 @@ const Dashboard = () => {
                   <Typography variant="h6" component="div">
                     {group.name}
                   </Typography>
-                  <GroupIcon color="primary" />
                 </Box>
+                
+                {group.owner && (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold', mb: 1 }}>
+                    Owner: {group.owner.name}
+                  </Typography>
+                )}
                 
                 {group.description && (
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     {group.description}
                   </Typography>
+                )}
+                
+                {group.members && group.members.length > 0 && (
+                  <Box sx={{ mt: 1, mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                      Members: {group.members.length}
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                      {group.members.slice(0, 3).map((member) => (
+                        <Tooltip 
+                          key={member.id} 
+                          title={`${member.name} (${member.email}) - ${member.GroupMember?.role || 'member'}`}
+                        >
+                          <Box
+                            sx={{
+                              bgcolor: 'primary.light',
+                              color: 'primary.contrastText',
+                              borderRadius: '50%',
+                              width: 24,
+                              height: 24,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.75rem',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            {member.name.charAt(0).toUpperCase()}
+                          </Box>
+                        </Tooltip>
+                      ))}
+                      {group.members.length > 3 && (
+                        <Tooltip title={`${group.members.length - 3} more members`}>
+                          <Box
+                            sx={{
+                              bgcolor: 'grey.400',
+                              color: 'grey.900',
+                              borderRadius: '50%',
+                              width: 24,
+                              height: 24,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.75rem',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            +{group.members.length - 3}
+                          </Box>
+                        </Tooltip>
+                      )}
+                    </Box>
+                  </Box>
                 )}
                 
                 <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
@@ -636,6 +951,15 @@ const Dashboard = () => {
                       disabled={group.UserId !== currentUser?.id}
                     >
                       <EditIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Manage Members">
+                    <IconButton 
+                      size="small" 
+                      color="info"
+                      onClick={() => handleOpenGroupAccessManagerDialog(group.id)}
+                    >
+                      <GroupIcon />
                     </IconButton>
                   </Tooltip>
                   {/* Only superusers (admin role) can delete groups */}
@@ -786,6 +1110,8 @@ const Dashboard = () => {
                   display: 'flex', 
                   flexDirection: 'column',
                   transition: 'all 0.3s',
+                  bgcolor: credential.ownerId === currentUser.id ? 'rgba(0, 0, 139, 0.15)' : 'rgba(173, 216, 230, 0.4)',
+                  borderLeft: credential.ownerId === currentUser.id ? '4px solid #00008b' : '4px solid #add8e6',
                   '&:hover': {
                     transform: 'translateY(-5px)',
                     boxShadow: 4
@@ -799,6 +1125,12 @@ const Dashboard = () => {
                     </Typography>
                     <VpnKeyIcon color="primary" />
                   </Box>
+                  
+                  {credential.owner && (
+                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold', mb: 1 }}>
+                      Owner: {credential.owner.name}
+                    </Typography>
+                  )}
                   
                   {credential.url && (
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -838,6 +1170,17 @@ const Dashboard = () => {
                     </Box>
                   )}
                   
+                  {credential.token && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                        Token/API Key
+                      </Typography>
+                      <Typography variant="body1" sx={{ wordBreak: 'break-all' }}>
+                        {credential.token}
+                      </Typography>
+                    </Box>
+                  )}
+                  
                   {credential.Groups && credential.Groups.length > 0 && (
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                       Groups: {credential.Groups.map(g => g.name).join(', ')}
@@ -854,6 +1197,20 @@ const Dashboard = () => {
                         <ViewIcon />
                       </IconButton>
                     </Tooltip>
+                    {/* Version History button - only visible to credential owner and group owners */}
+                    {(credential.ownerId === currentUser.id || 
+                      (credential.Groups && credential.Groups.some(g => g.ownerId === currentUser.id)) ||
+                      currentUser.role === 'admin') && (
+                      <Tooltip title="View Version History">
+                        <IconButton 
+                          size="small" 
+                          color="secondary"
+                          onClick={() => handleOpenVersionHistoryDialog(credential.id)}
+                        >
+                          <HistoryIcon />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     <Tooltip title="Edit Credential">
                       <IconButton 
                         size="small" 
@@ -1308,6 +1665,39 @@ const Dashboard = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      
+      {/* Credential Version History Dialog */}
+      <CredentialVersionHistory
+        open={openVersionHistoryDialog}
+        handleClose={handleCloseVersionHistoryDialog}
+        credentialId={selectedCredentialId}
+        onRestore={handleRestoreVersion}
+      />
+      
+      {/* Group Access Manager Dialog */}
+      <GroupAccessManager
+        open={openGroupAccessManagerDialog}
+        handleClose={handleCloseGroupAccessManagerDialog}
+        groupId={selectedGroupId}
+        onUpdate={() => {
+          // Refresh groups after member changes
+          const fetchGroups = async () => {
+            try {
+              const response = await axios.get('/groups');
+              let allGroups = [];
+              if (response.data.data && response.data.data.groups) {
+                allGroups = response.data.data.groups;
+              } else if (response.data && response.data.groups) {
+                allGroups = response.data.groups;
+              }
+            } catch (error) {
+              console.error('Error refreshing groups:', error);
+              toast.error('Failed to refresh groups');
+            }
+          };
+          fetchGroups();
+        }}
+      />
     </>
   );
 };

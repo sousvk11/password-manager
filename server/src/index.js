@@ -20,12 +20,18 @@ const Credential = require('./models/credential.model');
 const CredentialShare = require('./models/credentialShare.model');
 const CredentialGroup = require('./models/credentialGroup.model');
 const Activity = require('./models/activity.model');
+const CredentialVersion = require('./models/credentialVersion.model');
+const CredentialAccess = require('./models/credentialAccess.model');
 
 // Define model associations
 const setupAssociations = () => {
   // User and Group associations
   User.hasMany(Group, { foreignKey: 'ownerId', as: 'ownedGroups' });
   Group.belongsTo(User, { foreignKey: 'ownerId', as: 'owner' });
+
+  // Group and User many-to-many association through GroupMember
+  Group.belongsToMany(User, { through: GroupMember, foreignKey: 'groupId', as: 'members' });
+  User.belongsToMany(Group, { through: GroupMember, foreignKey: 'userId', as: 'memberOf' });
 
   // User and GroupMember associations
   User.hasMany(GroupMember, { foreignKey: 'userId' });
@@ -58,6 +64,26 @@ const setupAssociations = () => {
   // User and Activity associations
   User.hasMany(Activity, { foreignKey: 'userId' });
   Activity.belongsTo(User, { foreignKey: 'userId' });
+  
+  // Credential and CredentialVersion associations
+  Credential.hasMany(CredentialVersion, { foreignKey: 'credentialId' });
+  CredentialVersion.belongsTo(Credential, { foreignKey: 'credentialId' });
+  
+  // User and CredentialVersion associations (for changedBy)
+  User.hasMany(CredentialVersion, { foreignKey: 'changedBy' });
+  CredentialVersion.belongsTo(User, { foreignKey: 'changedBy', as: 'editor' });
+  
+  // Credential and CredentialAccess associations
+  Credential.hasMany(CredentialAccess, { foreignKey: 'credentialId' });
+  CredentialAccess.belongsTo(Credential, { foreignKey: 'credentialId' });
+  
+  // User and CredentialAccess associations
+  User.hasMany(CredentialAccess, { foreignKey: 'userId' });
+  CredentialAccess.belongsTo(User, { foreignKey: 'userId' });
+  
+  // User and CredentialAccess associations (for grantedBy)
+  User.hasMany(CredentialAccess, { foreignKey: 'grantedBy', as: 'grantedAccesses' });
+  CredentialAccess.belongsTo(User, { foreignKey: 'grantedBy', as: 'grantor' });
 };
 
 // Set up associations

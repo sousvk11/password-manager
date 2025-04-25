@@ -31,7 +31,6 @@ import {
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
   ArrowBack as ArrowBackIcon,
-  Share as ShareIcon,
   Group as GroupIcon,
   Person as PersonIcon
 } from '@mui/icons-material';
@@ -51,31 +50,19 @@ const CredentialDetail = () => {
   const [showToken, setShowToken] = useState(false);
   const [decryptedPassword, setDecryptedPassword] = useState('');
   const [decryptedToken, setDecryptedToken] = useState('');
-  
-  // Dialog states
   const [openEditDialog, setOpenEditDialog] = useState(false);
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
-  const [openShareDialog, setOpenShareDialog] = useState(false);
-  
-  // Form states
   const [editForm, setEditForm] = useState({
     websiteName: '',
     url: '',
+    username: '',
     email: '',
-    userId: '',
     password: '',
     token: '',
     description: '',
-    group: ''
+    groupId: ''
   });
-  
-  const [shareForm, setShareForm] = useState({
-    email: '',
-    permission: 'view'
-  });
-  
   const [groups, setGroups] = useState([]);
-  const [users, setUsers] = useState([]);
   
   // Fetch credential data
   useEffect(() => {
@@ -90,21 +77,17 @@ const CredentialDetail = () => {
         setEditForm({
           websiteName: response.data.data.credential.websiteName,
           url: response.data.data.credential.url || '',
+          username: response.data.data.credential.username || '',
           email: response.data.data.credential.email || '',
-          userId: response.data.data.credential.userId || '',
           password: '********', // Placeholder for password
           token: response.data.data.credential.token ? '********' : '',
           description: response.data.data.credential.description || '',
-          group: response.data.data.credential.group._id
+          groupId: response.data.data.credential.group._id
         });
         
         // Fetch groups for edit form
         const groupsResponse = await axios.get('/groups');
         setGroups(groupsResponse.data.data.groups);
-        
-        // Fetch users for share dialog
-        const usersResponse = await axios.get('/users');
-        setUsers(usersResponse.data.data.users);
       } catch (error) {
         console.error('Error fetching credential:', error);
         toast.error('Failed to load credential details. Please try again.');
@@ -148,22 +131,9 @@ const CredentialDetail = () => {
     setOpenDeleteDialog(false);
   };
   
-  const handleOpenShareDialog = () => {
-    setOpenShareDialog(true);
-  };
-  
-  const handleCloseShareDialog = () => {
-    setOpenShareDialog(false);
-    setShareForm({ email: '', permission: 'view' });
-  };
-  
   // Form handlers
   const handleEditFormChange = (e) => {
     setEditForm({ ...editForm, [e.target.name]: e.target.value });
-  };
-  
-  const handleShareFormChange = (e) => {
-    setShareForm({ ...shareForm, [e.target.name]: e.target.value });
   };
   
   // Submit handlers
@@ -196,47 +166,6 @@ const CredentialDetail = () => {
     } catch (error) {
       console.error('Error deleting credential:', error);
       toast.error(error.response?.data?.message || 'Failed to delete credential. Please try again.');
-    }
-  };
-  
-  const handleShareCredential = async () => {
-    try {
-      // Find user by email
-      const user = users.find(u => u.email === shareForm.email);
-      
-      if (!user) {
-        toast.error('User not found with this email.');
-        return;
-      }
-      
-      await axios.post(`/credentials/${credentialId}/share`, {
-        userId: user._id,
-        permission: shareForm.permission
-      });
-      
-      toast.success(`Credential shared with ${shareForm.email} successfully!`);
-      handleCloseShareDialog();
-      
-      // Refresh credential data
-      const response = await axios.get(`/credentials/${credentialId}`);
-      setCredential(response.data.data.credential);
-    } catch (error) {
-      console.error('Error sharing credential:', error);
-      toast.error(error.response?.data?.message || 'Failed to share credential. Please try again.');
-    }
-  };
-  
-  const handleRevokeAccess = async (userId) => {
-    try {
-      await axios.delete(`/credentials/${credentialId}/share/${userId}`);
-      toast.success('Access revoked successfully!');
-      
-      // Refresh credential data
-      const response = await axios.get(`/credentials/${credentialId}`);
-      setCredential(response.data.data.credential);
-    } catch (error) {
-      console.error('Error revoking access:', error);
-      toast.error(error.response?.data?.message || 'Failed to revoke access. Please try again.');
     }
   };
   
@@ -313,11 +242,6 @@ const CredentialDetail = () => {
                       <EditIcon />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="Share Credential">
-                    <IconButton onClick={handleOpenShareDialog} color="primary">
-                      <ShareIcon />
-                    </IconButton>
-                  </Tooltip>
                   <Tooltip title="Delete Credential">
                     <IconButton onClick={handleOpenDeleteDialog} color="error">
                       <DeleteIcon />
@@ -385,19 +309,19 @@ const CredentialDetail = () => {
                   </Grid>
                 )}
                 
-                {credential.userId && (
+                {credential.username && (
                   <Grid item xs={12} sm={6}>
                     <Typography variant="subtitle2" color="text.secondary">
-                      User ID
+                      Username
                     </Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
                       <Typography variant="body1" sx={{ mr: 1 }}>
-                        {credential.userId}
+                        {credential.username}
                       </Typography>
-                      <Tooltip title="Copy User ID">
+                      <Tooltip title="Copy Username">
                         <IconButton 
                           size="small" 
-                          onClick={() => copyToClipboard(credential.userId)}
+                          onClick={() => copyToClipboard(credential.username)}
                         >
                           <CopyIcon fontSize="small" />
                         </IconButton>
@@ -484,106 +408,25 @@ const CredentialDetail = () => {
         </Grid>
         
         <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3, mb: 3 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
-              Shared With
-            </Typography>
-            
-            {credential.sharedWith && credential.sharedWith.length > 0 ? (
-              credential.sharedWith.map((share) => (
-                <Box 
-                  key={share.user._id} 
-                  sx={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    mb: 1,
-                    p: 1,
-                    borderRadius: 1,
-                    bgcolor: 'background.default'
-                  }}
-                >
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <PersonIcon sx={{ mr: 1, color: 'primary.main' }} />
-                    <Box>
-                      <Typography variant="body1">
-                        {share.user.name}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {share.user.email}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box>
-                    <Chip 
-                      label={share.permission} 
-                      size="small" 
-                      color={share.permission === 'edit' ? 'primary' : 'default'} 
-                      sx={{ mr: 1 }}
-                    />
-                    <Tooltip title="Revoke Access">
-                      <IconButton 
-                        size="small" 
-                        color="error"
-                        onClick={() => handleRevokeAccess(share.user._id)}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
-              ))
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                This credential is not shared with anyone.
-              </Typography>
-            )}
-            
-            <Button
-              variant="outlined"
-              startIcon={<ShareIcon />}
-              onClick={handleOpenShareDialog}
-              sx={{ mt: 2 }}
-              fullWidth
-            >
-              Share Credential
-            </Button>
-          </Paper>
-          
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" sx={{ mb: 2 }}>
-              Credential Info
+              Group Information
             </Typography>
             
             <Box sx={{ mb: 2 }}>
               <Typography variant="subtitle2" color="text.secondary">
-                Created
+                Group
               </Typography>
               <Typography variant="body2">
-                {new Date(credential.createdAt).toLocaleString()}
+                {credential.group ? credential.group.name : 'Not assigned to any group'}
               </Typography>
             </Box>
             
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="subtitle2" color="text.secondary">
-                Last Modified
-              </Typography>
-              <Typography variant="body2">
-                {new Date(credential.lastModified).toLocaleString()}
-              </Typography>
-            </Box>
-            
-            <Box>
-              <Typography variant="subtitle2" color="text.secondary">
-                Owner
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.5 }}>
-                <PersonIcon sx={{ mr: 1, fontSize: 20, color: 'primary.main' }} />
-                <Typography variant="body2">
-                  {credential.owner === currentUser._id ? 'You' : 'Another User'}
-                </Typography>
-              </Box>
-            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+              Access to this credential is managed through group membership.
+              Users who are members of this credential's group can access it
+              based on their role in the group.
+            </Typography>
           </Paper>
         </Grid>
       </Grid>
@@ -620,6 +463,18 @@ const CredentialDetail = () => {
           />
           <TextField
             margin="dense"
+            id="username"
+            name="username"
+            label="Username"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={editForm.username}
+            onChange={handleEditFormChange}
+            sx={{ mb: 2 }}
+          />
+          <TextField
+            margin="dense"
             id="email"
             name="email"
             label="Email"
@@ -627,18 +482,6 @@ const CredentialDetail = () => {
             fullWidth
             variant="outlined"
             value={editForm.email}
-            onChange={handleEditFormChange}
-            sx={{ mb: 2 }}
-          />
-          <TextField
-            margin="dense"
-            id="userId"
-            name="userId"
-            label="User ID"
-            type="text"
-            fullWidth
-            variant="outlined"
-            value={editForm.userId}
             onChange={handleEditFormChange}
             sx={{ mb: 2 }}
           />
@@ -685,8 +528,8 @@ const CredentialDetail = () => {
             <Select
               labelId="group-label"
               id="group"
-              name="group"
-              value={editForm.group}
+              name="groupId"
+              value={editForm.groupId}
               label="Group"
               onChange={handleEditFormChange}
             >
@@ -703,7 +546,7 @@ const CredentialDetail = () => {
           <Button 
             onClick={handleSubmitEdit} 
             variant="contained"
-            disabled={!editForm.websiteName || !editForm.group}
+            disabled={!editForm.websiteName || !editForm.groupId}
           >
             Save
           </Button>
@@ -722,73 +565,6 @@ const CredentialDetail = () => {
           <Button onClick={handleCloseDeleteDialog}>Cancel</Button>
           <Button onClick={handleDelete} color="error" variant="contained">
             Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-      
-      {/* Share Dialog */}
-      <Dialog open={openShareDialog} onClose={handleCloseShareDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>Share Credential</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ mb: 2 }}>
-            Share this credential with another user by entering their email address.
-          </Typography>
-          
-          <TextField
-            autoFocus
-            margin="dense"
-            id="email"
-            name="email"
-            label="User Email"
-            type="email"
-            fullWidth
-            variant="outlined"
-            value={shareForm.email}
-            onChange={handleShareFormChange}
-            required
-            sx={{ mb: 2, mt: 1 }}
-          />
-          
-          <FormControl fullWidth required sx={{ mb: 2 }}>
-            <InputLabel id="permission-label">Permission</InputLabel>
-            <Select
-              labelId="permission-label"
-              id="permission"
-              name="permission"
-              value={shareForm.permission}
-              label="Permission"
-              onChange={handleShareFormChange}
-            >
-              <MenuItem value="view">View Only</MenuItem>
-              <MenuItem value="edit">Edit</MenuItem>
-            </Select>
-          </FormControl>
-          
-          {credential.sharedWith && credential.sharedWith.length > 0 && (
-            <Box sx={{ mt: 3 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Currently shared with:
-              </Typography>
-              {credential.sharedWith.map((share) => (
-                <Chip
-                  key={share.user._id}
-                  icon={<PersonIcon />}
-                  label={`${share.user.email} (${share.permission})`}
-                  variant="outlined"
-                  sx={{ mr: 1, mb: 1 }}
-                />
-              ))}
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseShareDialog}>Cancel</Button>
-          <Button 
-            onClick={handleShareCredential} 
-            variant="contained"
-            disabled={!shareForm.email}
-          >
-            Share
           </Button>
         </DialogActions>
       </Dialog>

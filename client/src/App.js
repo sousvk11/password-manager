@@ -13,7 +13,6 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import GroupDetail from './pages/GroupDetail';
-import CredentialDetail from './pages/CredentialDetail';
 import AdminPanel from './pages/AdminPanel';
 import ActivityLogs from './pages/ActivityLogs';
 import Profile from './pages/Profile';
@@ -80,7 +79,6 @@ function App() {
               <Route index element={<Navigate to="/dashboard" />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="groups/:groupId" element={<GroupDetail />} />
-              <Route path="credentials/:credentialId" element={<CredentialDetail />} />
               <Route path="profile" element={<Profile />} />
               <Route path="activity" element={<ActivityLogs />} />
               

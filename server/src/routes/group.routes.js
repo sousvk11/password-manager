@@ -12,13 +12,19 @@ router.route('/')
   .get(groupController.getAllGroups)
   .post(groupController.createGroup);
 
-router.route('/:id')
-  .get(groupController.getGroup)
-  .patch(groupController.updateGroup)
-  .delete(groupController.deleteGroup);
+// Get a single group
+router.get('/:id', groupController.getGroup);
 
-// Group member management
+// Update a group
+router.put('/:id', groupController.updateGroup);
+
+// Delete a group
+router.delete('/:id', groupController.deleteGroup);
+
+// Group members management
+router.get('/:id/members', groupController.getGroupMembers);
 router.post('/:id/members', groupController.addUserToGroup);
-router.delete('/:id/members/:userId', groupController.removeUserFromGroup);
+router.put('/:id/members/:userId', groupController.updateGroupMember);
+router.delete('/:id/members/:userId', groupController.removeGroupMember);
 
 module.exports = router;
