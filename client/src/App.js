@@ -17,6 +17,7 @@ import AdminPanel from './pages/AdminPanel';
 import ActivityLogs from './pages/ActivityLogs';
 import Profile from './pages/Profile';
 import NotFound from './pages/NotFound';
+import ForgotPassword from './pages/ForgotPassword';
 
 // Components
 import PrivateRoute from './components/PrivateRoute';
@@ -73,6 +74,7 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             
             {/* Protected Routes */}
             <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>

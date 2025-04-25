@@ -20,6 +20,8 @@ import {
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import AuthContext from '../context/AuthContext';
+import axios from '../utils/axiosConfig';
+import OTPVerification from '../components/OTPVerification';
 
 const Login = () => {
   const { login, currentUser, loading } = useContext(AuthContext);
@@ -31,6 +33,10 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [formErrors, setFormErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // OTP verification state
+  const [showOTPVerification, setShowOTPVerification] = useState(false);
+  const [otpEmail, setOtpEmail] = useState('');
   
   // Redirect if already logged in
   useEffect(() => {
@@ -64,8 +70,16 @@ const Login = () => {
     setIsSubmitting(true);
     
     try {
-      await login(email, password);
-      // Navigate will happen automatically due to the useEffect
+      // Use the login function from AuthContext
+      const result = await login(email, password);
+      
+      // Check if OTP verification is required
+      if (result && result.requireOTP) {
+        // Show OTP verification form
+        setOtpEmail(result.email);
+        setShowOTPVerification(true);
+      }
+      // If no OTP required, the login function will handle the token and redirect
     } catch (error) {
       toast.error(error.response?.data?.message || 'Login failed. Please check your credentials.');
     } finally {
@@ -73,11 +87,87 @@ const Login = () => {
     }
   };
   
+  // Handle OTP verification
+  const handleVerifyOTP = async (otpCode, trustDevice) => {
+    try {
+      console.log('Verifying OTP:', { email: otpEmail, otpCode, trustDevice });
+      
+      const response = await axios.post('/auth/login/complete', {
+        email: otpEmail,
+        otp: otpCode,
+        trustDevice
+      });
+      
+      if (response.data.status === 'success') {
+        // Store token
+        localStorage.setItem('token', response.data.token);
+        
+        // Show success message
+        toast.success('Login successful!');
+        
+        // Instead of directly navigating, reload the page to trigger auth context update
+        window.location.href = '/dashboard';
+      }
+    } catch (error) {
+      console.error('OTP verification error:', error);
+      toast.error(error.response?.data?.message || 'Verification failed. Please try again.');
+    }
+  };
+  
+  // Handle resend OTP
+  const handleResendOTP = async () => {
+    try {
+      console.log('Resending OTP for:', otpEmail);
+      
+      const response = await axios.post('/auth/login/initiate', {
+        email: otpEmail,
+        password
+      });
+      
+      if (response.data.status === 'success') {
+        toast.success('Verification code resent to your email');
+        return true;
+      }
+    } catch (error) {
+      console.error('Failed to resend verification code:', error);
+      toast.error(error.response?.data?.message || 'Failed to resend verification code.');
+      throw error;
+    }
+  };
+  
+  // Handle cancel OTP verification
+  const handleCancelOTP = () => {
+    setShowOTPVerification(false);
+    setOtpEmail('');
+  };
+  
+  // Handle forgot password
+  const handleForgotPassword = () => {
+    navigate('/forgot-password');
+  };
+  
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
         <CircularProgress />
       </Box>
+    );
+  }
+  
+  // Show OTP verification if required
+  if (showOTPVerification) {
+    return (
+      <Container component="main" maxWidth="sm">
+        <Box sx={{ mt: 8 }}>
+          <OTPVerification
+            email={otpEmail}
+            purpose="login"
+            onVerify={handleVerifyOTP}
+            onResend={handleResendOTP}
+            onCancel={handleCancelOTP}
+          />
+        </Box>
+      </Container>
     );
   }
   
@@ -99,19 +189,15 @@ const Login = () => {
             flexDirection: 'column',
             alignItems: 'center',
             borderRadius: 2,
-            width: '100%',
+            width: '100%'
           }}
         >
           <Avatar sx={{ m: 1, bgcolor: 'primary.main' }}>
             <LockOutlinedIcon />
           </Avatar>
-          <Typography component="h1" variant="h5" sx={{ mb: 3 }}>
-            Password Manager
+          <Typography component="h1" variant="h5">
+            Sign in
           </Typography>
-          <Typography component="h2" variant="h6" sx={{ mb: 3 }}>
-            Sign In
-          </Typography>
-          
           <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1, width: '100%' }}>
             <TextField
               margin="normal"
@@ -151,21 +237,24 @@ const Login = () => {
                       {showPassword ? <VisibilityOff /> : <Visibility />}
                     </IconButton>
                   </InputAdornment>
-                ),
+                )
               }}
             />
             <Button
               type="submit"
               fullWidth
               variant="contained"
-              sx={{ mt: 3, mb: 2, py: 1.5 }}
+              sx={{ mt: 3, mb: 2 }}
               disabled={isSubmitting}
             >
               {isSubmitting ? <CircularProgress size={24} /> : 'Sign In'}
             </Button>
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+              <Link component={RouterLink} to="/forgot-password" variant="body2">
+                Forgot password?
+              </Link>
               <Link component={RouterLink} to="/register" variant="body2">
-                {"Don't have an account? Sign Up"}
+                Don't have an account? Sign Up
               </Link>
             </Box>
           </Box>

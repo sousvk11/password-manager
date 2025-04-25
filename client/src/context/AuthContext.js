@@ -11,7 +11,7 @@ export const AuthProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   // Set up axios defaults
-  axios.defaults.baseURL = process.env.REACT_APP_API_URL || '/api';
+  axios.defaults.baseURL = process.env.REACT_APP_API_URL || '/api/v1';
   
   // Set token in axios headers
   useEffect(() => {
@@ -63,7 +63,14 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       setError(null);
-      const response = await axios.post('/auth/login', { email, password });
+      // Use the direct axios import for login since we need to handle OTP in the Login component
+      const response = await axios.post('/auth/login/initiate', { email, password });
+      
+      // Check if OTP verification is required
+      if (response.data.data && response.data.data.requireOTP) {
+        // Return the response so the Login component can handle OTP verification
+        return { requireOTP: true, ...response.data.data };
+      }
       
       const { token, data } = response.data;
       
@@ -83,18 +90,27 @@ export const AuthProvider = ({ children }) => {
   const register = async (name, email, password) => {
     try {
       setError(null);
-      const response = await axios.post('/auth/signup', { name, email, password });
+      const response = await axios.post('/auth/signup/initiate', { name, email, password });
       
-      const { token, data } = response.data;
-      
-      // Save token to localStorage
-      localStorage.setItem('token', token);
-      setToken(token);
-      setCurrentUser(data.user);
-      
-      return data.user;
+      // For registration, we'll always require email verification
+      return response.data;
     } catch (err) {
       setError(err.response?.data?.message || 'Registration failed');
+      throw err;
+    }
+  };
+
+  // Complete registration with OTP
+  const completeRegistration = async (email, otp) => {
+    try {
+      setError(null);
+      const response = await axios.post('/auth/signup/complete', { email, otp });
+      
+      // Registration is successful, but we don't automatically log in anymore
+      // The user will be redirected to the login page
+      return response.data;
+    } catch (err) {
+      setError(err.response?.data?.message || 'Verification failed');
       throw err;
     }
   };
@@ -161,6 +177,7 @@ export const AuthProvider = ({ children }) => {
     error,
     login,
     register,
+    completeRegistration,
     logout,
     updateProfile,
     updatePassword,

@@ -38,6 +38,8 @@ import {
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import axios from 'axios';
+import SMTPSettings from '../components/SMTPSettings';
+import DomainSettings from '../components/DomainSettings';
 
 const AdminPanel = () => {
   // Tab state
@@ -260,7 +262,11 @@ const AdminPanel = () => {
         delete formData.password;
       }
       
-      await axios.patch(`/users/${selectedUser._id}`, formData);
+      // Use id instead of _id for Sequelize compatibility
+      const userId = selectedUser.id || selectedUser._id;
+      console.log('Updating user with ID:', userId);
+      
+      await axios.patch(`/users/${userId}`, formData);
       toast.success('User updated successfully!');
       handleCloseEditUserDialog();
       fetchUsers();
@@ -274,7 +280,11 @@ const AdminPanel = () => {
     try {
       if (!selectedUser) return;
       
-      await axios.delete(`/users/${selectedUser._id}`);
+      // Use id instead of _id for Sequelize compatibility
+      const userId = selectedUser.id || selectedUser._id;
+      console.log('Deleting user with ID:', userId);
+      
+      await axios.delete(`/users/${userId}`);
       toast.success('User deleted successfully!');
       handleCloseDeleteUserDialog();
       fetchUsers();
@@ -463,46 +473,17 @@ const AdminPanel = () => {
         
         <Box role="tabpanel" hidden={tabValue !== 1} id="tabpanel-1" aria-labelledby="tab-1" sx={{ py: 3 }}>
           {tabValue === 1 && (
-            <Paper sx={{ p: 3 }}>
-              <Typography variant="h6" sx={{ mb: 3 }}>
+            <>
+              <Typography variant="h6" gutterBottom>
                 System Settings
               </Typography>
               
-              <Alert severity="info" sx={{ mb: 3 }}>
-                System settings are currently managed through environment variables. Please contact the system administrator to change these settings.
-              </Alert>
+              {/* SMTP Settings */}
+              <SMTPSettings />
               
-              <Box sx={{ mb: 3 }}>
-                <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                  Security Settings
-                </Typography>
-                <Box sx={{ pl: 2 }}>
-                  <Typography variant="body2" sx={{ mb: 1 }}>
-                    • Password encryption is enabled using AES-256
-                  </Typography>
-                  <Typography variant="body2" sx={{ mb: 1 }}>
-                    • JWT token expiration: 90 days
-                  </Typography>
-                  <Typography variant="body2" sx={{ mb: 1 }}>
-                    • Rate limiting: 100 requests per 15 minutes
-                  </Typography>
-                </Box>
-              </Box>
-              
-              <Box>
-                <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                  Database Information
-                </Typography>
-                <Box sx={{ pl: 2 }}>
-                  <Typography variant="body2" sx={{ mb: 1 }}>
-                    • Database: MongoDB
-                  </Typography>
-                  <Typography variant="body2" sx={{ mb: 1 }}>
-                    • Connection: {process.env.NODE_ENV === 'production' ? 'Production Database' : 'Development Database'}
-                  </Typography>
-                </Box>
-              </Box>
-            </Paper>
+              {/* Domain Restriction Settings */}
+              <DomainSettings />
+            </>
           )}
         </Box>
       </Box>

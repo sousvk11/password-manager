@@ -37,7 +37,10 @@ Activity.init({
       'update_group_member_role',
       'change_user_permission',
       'share_credential',
-      'revoke_credential_access'
+      'revoke_credential_access',
+      'create_user',
+      'edit_user',
+      'delete_user'
     ),
     allowNull: false
   },

@@ -484,49 +484,21 @@ const Dashboard = () => {
           // Refresh groups after deletion
           try {
             const refreshResponse = await axios.get('/groups');
-            let allGroups = [];
             if (refreshResponse.data.data && refreshResponse.data.data.groups) {
-              allGroups = refreshResponse.data.data.groups;
-            } else if (Array.isArray(refreshResponse.data.data)) {
-              allGroups = refreshResponse.data.data;
+              setGroups(refreshResponse.data.data.groups);
+              // Filter groups created/owned by the current user only
+              const userOwnedGroups = refreshResponse.data.data.groups.filter(group => 
+                group.UserId === currentUser?.id || group.ownerId === currentUser?.id
+              );
+              setMyGroups(userOwnedGroups);
+            } else if (refreshResponse.data && refreshResponse.data.groups) {
+              setGroups(refreshResponse.data.groups);
+              // Filter groups created/owned by the current user only
+              const userOwnedGroups = refreshResponse.data.groups.filter(group => 
+                group.UserId === currentUser?.id || group.ownerId === currentUser?.id
+              );
+              setMyGroups(userOwnedGroups);
             }
-            
-            console.log('All groups before filtering:', allGroups);
-            
-            // Check if user is admin
-            const isAdmin = currentUser && currentUser.role === 'admin';
-            console.log('Current user is admin:', isAdmin);
-            
-            if (isAdmin) {
-              // Admin users can see all groups
-              console.log('Admin user - showing all groups');
-              setGroups(allGroups);
-            } else {
-              // Regular users can only see groups they own or are members of
-              const userMemberGroups = allGroups.filter(group => {
-                // Check if user is owner
-                const isOwner = group.UserId === currentUser?.id || group.ownerId === currentUser?.id;
-                
-                // Check if user is a member
-                const isMember = group.members && Array.isArray(group.members) && 
-                  group.members.some(member => {
-                    const memberId = member.id || member.userId || (member.User && member.User.id);
-                    return memberId === currentUser?.id;
-                  });
-                  
-                return isOwner || isMember;
-              });
-              
-              console.log('Groups where user is owner or member:', userMemberGroups);
-              setGroups(userMemberGroups);
-            }
-            
-            // Filter groups created/owned by the current user only
-            const userOwnedGroups = allGroups.filter(group => 
-              group.UserId === currentUser?.id || group.ownerId === currentUser?.id
-            );
-            console.log('Groups owned by user:', userOwnedGroups);
-            setMyGroups(userOwnedGroups);
           } catch (refreshError) {
             console.error('Error refreshing groups after deletion:', refreshError);
             // Fallback to filtering locally
@@ -1684,11 +1656,20 @@ const Dashboard = () => {
           const fetchGroups = async () => {
             try {
               const response = await axios.get('/groups');
-              let allGroups = [];
               if (response.data.data && response.data.data.groups) {
-                allGroups = response.data.data.groups;
+                setGroups(response.data.data.groups);
+                // Filter groups created/owned by the current user only
+                const userOwnedGroups = response.data.data.groups.filter(group => 
+                  group.UserId === currentUser?.id || group.ownerId === currentUser?.id
+                );
+                setMyGroups(userOwnedGroups);
               } else if (response.data && response.data.groups) {
-                allGroups = response.data.groups;
+                setGroups(response.data.groups);
+                // Filter groups created/owned by the current user only
+                const userOwnedGroups = response.data.groups.filter(group => 
+                  group.UserId === currentUser?.id || group.ownerId === currentUser?.id
+                );
+                setMyGroups(userOwnedGroups);
               }
             } catch (error) {
               console.error('Error refreshing groups:', error);

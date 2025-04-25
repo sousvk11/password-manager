@@ -15,6 +15,53 @@ class User extends Model {
       return false;
     }
   }
+  
+  // Method to check if email domain is allowed
+  static async isEmailDomainAllowed(email) {
+    try {
+      // Get allowed domains setting
+      const allowedDomainsSetting = await sequelize.models.Setting.findOne({
+        where: { key: 'allowed_domains' }
+      });
+      
+      // If no setting exists, allow all domains by default
+      if (!allowedDomainsSetting || !allowedDomainsSetting.value) {
+        return true;
+      }
+      
+      const settings = JSON.parse(allowedDomainsSetting.value);
+      
+      // If domain restriction is not enabled, allow all domains
+      if (!settings.enabled) {
+        return true;
+      }
+      
+      // If guest users are allowed, check if this is a guest user
+      if (settings.allowGuests) {
+        const guestUsersSetting = await sequelize.models.Setting.findOne({
+          where: { key: 'guest_users' }
+        });
+        
+        if (guestUsersSetting && guestUsersSetting.value) {
+          const guestUsers = JSON.parse(guestUsersSetting.value);
+          if (guestUsers.emails && guestUsers.emails.includes(email)) {
+            return true;
+          }
+        }
+      }
+      
+      // Check if email domain is in allowed domains
+      if (settings.domains && settings.domains.length > 0) {
+        const domain = email.split('@')[1];
+        return settings.domains.includes(domain);
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error checking email domain:', error);
+      return false;
+    }
+  }
 }
 
 User.init({
@@ -55,6 +102,26 @@ User.init({
   },
   lastLogin: {
     type: DataTypes.DATE
+  },
+  isEmailVerified: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  isGuest: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  registrationComplete: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  currentDeviceId: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  lastDeviceId: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
 }, {
   sequelize,

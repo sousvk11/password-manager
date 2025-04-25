@@ -22,6 +22,10 @@ const CredentialGroup = require('./models/credentialGroup.model');
 const Activity = require('./models/activity.model');
 const CredentialVersion = require('./models/credentialVersion.model');
 const CredentialAccess = require('./models/credentialAccess.model');
+const Setting = require('./models/setting.model');
+const OTP = require('./models/otp.model');
+const TrustedDevice = require('./models/trustedDevice.model');
+const PendingRegistration = require('./models/pendingRegistration.model');
 
 // Define model associations
 const setupAssociations = () => {
@@ -95,9 +99,13 @@ const userRoutes = require('./routes/user.routes');
 const groupRoutes = require('./routes/group.routes');
 const credentialRoutes = require('./routes/credential.routes');
 const activityRoutes = require('./routes/activity.routes');
+const settingRoutes = require('./routes/setting.routes');
 
 // Initialize Express app
 const app = express();
+
+// Trust proxy for rate limiting to work correctly with proxies
+app.set('trust proxy', 1);
 
 // Set security HTTP headers
 app.use(helmet());
@@ -123,11 +131,12 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/groups', groupRoutes);
-app.use('/api/credentials', credentialRoutes);
-app.use('/api/activities', activityRoutes);
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/groups', groupRoutes);
+app.use('/api/v1/credentials', credentialRoutes);
+app.use('/api/v1/activities', activityRoutes);
+app.use('/api/v1/settings', settingRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -156,7 +165,9 @@ const startServer = async () => {
     
     // Sync database models (in development only)
     if (process.env.NODE_ENV === 'development') {
-      await sequelize.sync({ alter: true });
+      // Use sync without alter to avoid changing existing tables
+      // This prevents "Too many keys" error
+      await sequelize.sync({ alter: false });
       console.log('Database models synchronized');
     }
     
