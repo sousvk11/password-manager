@@ -42,7 +42,7 @@ Credential.init({
   },
   password: {
     type: DataTypes.TEXT,
-    allowNull: false
+    allowNull: true
   },
   token: {
     type: DataTypes.TEXT
@@ -72,7 +72,9 @@ Credential.init({
       const encryptionKey = process.env.ENCRYPTION_KEY;
       
       // Encrypt password
-      credential.password = crypto.AES.encrypt(credential.password, encryptionKey).toString();
+      if (credential.password) {
+        credential.password = crypto.AES.encrypt(credential.password, encryptionKey).toString();
+      }
       
       // Encrypt token if present
       if (credential.token) {
@@ -83,7 +85,7 @@ Credential.init({
       const encryptionKey = process.env.ENCRYPTION_KEY;
       
       // Only encrypt if the password was changed and is not already encrypted
-      if (credential.changed('password') && !credential.password.startsWith('U2')) {
+      if (credential.changed('password') && credential.password && !credential.password.startsWith('U2')) {
         credential.password = crypto.AES.encrypt(credential.password, encryptionKey).toString();
       }
       

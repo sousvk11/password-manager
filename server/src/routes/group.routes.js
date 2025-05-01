@@ -1,6 +1,7 @@
 const express = require('express');
 const authController = require('../controllers/auth.controller');
 const groupController = require('../controllers/group.controller');
+const pinController = require('../controllers/pin.controller');
 
 const router = express.Router();
 
@@ -19,7 +20,7 @@ router.get('/:id', groupController.getGroup);
 router.put('/:id', groupController.updateGroup);
 
 // Delete a group
-router.delete('/:id', groupController.deleteGroup);
+router.delete('/:id', pinController.isPinVerificationRequired('delete'), groupController.deleteGroup);
 
 // Group members management
 router.get('/:id/members', groupController.getGroupMembers);

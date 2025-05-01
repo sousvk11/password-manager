@@ -1,5 +1,5 @@
-const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const User = require('../models/user.model');
 const Activity = require('../models/activity.model');
 const OTP = require('../models/otp.model');
@@ -311,13 +311,27 @@ exports.initiateLogin = async (req, res) => {
     }
 
     // Regular login flow for non-demo accounts
-    // Check if user exists
+    // First check if user exists regardless of active status
+    const userExists = await User.findOne({
+      where: { email }
+    });
+    
+    // If user exists but is inactive, return specific message
+    if (userExists && !userExists.active) {
+      console.log('Inactive user attempted login:', email);
+      return res.status(401).json({
+        status: 'fail',
+        message: 'Your account is inactive. Please contact your administrator.'
+      });
+    }
+    
+    // Check if user exists and is active
     const user = await User.findOne({
       where: { email, active: true }
     });
 
     if (!user) {
-      console.log('User not found:', email);
+      console.log('User not found or inactive:', email);
       return res.status(401).json({
         status: 'fail',
         message: 'Incorrect email or password'

@@ -7,13 +7,14 @@ import {
   TextField,
   Button,
   Divider,
-  Avatar,
   CircularProgress,
-  Alert
+  Alert,
+  Container
 } from '@mui/material';
 import { toast } from 'react-toastify';
-import axios from 'axios';
+import axios from '../utils/axiosConfig';
 import AuthContext from '../context/AuthContext';
+import PinManagement from '../components/PinManagement';
 
 const Profile = () => {
   const { currentUser, updateProfile, updatePassword } = useContext(AuthContext);
@@ -165,17 +166,22 @@ const Profile = () => {
   }, [currentUser._id]);
   
   return (
-    <Box>
-      <Typography variant="h4" component="h1" sx={{ mb: 3 }}>
-        My Profile
+    <Container maxWidth="md">
+      <Typography variant="h4" component="h1" gutterBottom>
+        Profile Settings
       </Typography>
       
       <Grid container spacing={3}>
-        <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 3, mb: 3 }}>
-            <Typography variant="h6" sx={{ mb: 3 }}>
-              Profile Information
+        <Grid item xs={12}>
+          <PinManagement />
+        </Grid>
+        
+        <Grid item xs={12}>
+          <Paper elevation={3} sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              Personal Information
             </Typography>
+            <Divider sx={{ mb: 3 }} />
             
             <Box component="form" onSubmit={handleProfileUpdate}>
               <Grid container spacing={2}>
@@ -218,11 +224,14 @@ const Profile = () => {
               </Grid>
             </Box>
           </Paper>
-          
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" sx={{ mb: 3 }}>
+        </Grid>
+        
+        <Grid item xs={12}>
+          <Paper elevation={3} sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
               Change Password
             </Typography>
+            <Divider sx={{ mb: 3 }} />
             
             <Box component="form" onSubmit={handlePasswordUpdate}>
               <Grid container spacing={2}>
@@ -283,59 +292,12 @@ const Profile = () => {
           </Paper>
         </Grid>
         
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3, mb: 3, textAlign: 'center' }}>
-            <Avatar
-              sx={{
-                width: 100,
-                height: 100,
-                mx: 'auto',
-                mb: 2,
-                bgcolor: 'primary.main',
-                fontSize: 40
-              }}
-            >
-              {currentUser?.name?.charAt(0)?.toUpperCase() || 'U'}
-            </Avatar>
-            
-            <Typography variant="h6">
-              {currentUser?.name}
-            </Typography>
-            
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              {currentUser?.email}
-            </Typography>
-            
-            <Divider sx={{ my: 2 }} />
-            
-            <Box sx={{ textAlign: 'left' }}>
-              <Typography variant="subtitle2" color="text.secondary">
-                Role
-              </Typography>
-              <Typography variant="body1" sx={{ mb: 2, textTransform: 'capitalize' }}>
-                {currentUser?.role}
-              </Typography>
-              
-              <Typography variant="subtitle2" color="text.secondary">
-                Member Since
-              </Typography>
-              <Typography variant="body1" sx={{ mb: 2 }}>
-                {new Date(currentUser?.createdAt).toLocaleDateString()}
-              </Typography>
-              
-              <Typography variant="subtitle2" color="text.secondary">
-                Last Login
-              </Typography>
-              <Typography variant="body1">
-                {currentUser?.lastLogin ? new Date(currentUser.lastLogin).toLocaleString() : 'N/A'}
-              </Typography>
-            </Box>
-          </Paper>
-          
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" sx={{ mb: 2 }}>
+        <Grid item xs={12}>
+          <Paper elevation={3} sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
               Activity Summary
             </Typography>
+            <Divider sx={{ mb: 3 }} />
             
             {statsLoading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
@@ -396,7 +358,7 @@ const Profile = () => {
           </Paper>
         </Grid>
       </Grid>
-    </Box>
+    </Container>
   );
 };
 

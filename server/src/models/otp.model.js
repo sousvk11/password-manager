@@ -174,7 +174,7 @@ OTP.init({
     allowNull: false
   },
   purpose: {
-    type: DataTypes.ENUM('login', 'registration', 'reset'),
+    type: DataTypes.ENUM('login', 'registration', 'reset', 'pin_generation'),
     allowNull: false
   },
   expiresAt: {

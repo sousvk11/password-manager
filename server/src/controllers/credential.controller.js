@@ -8,6 +8,44 @@ const GroupMember = require('../models/groupMember.model');
 const CredentialShare = require('../models/credentialShare.model');
 const CredentialGroup = require('../models/credentialGroup.model');
 const CredentialAccess = require('../models/credentialAccess.model');
+const crypto = require('crypto');
+
+// Helper function to decrypt a field
+const decryptField = async (encryptedValue) => {
+  try {
+    if (!encryptedValue) return '';
+    
+    const encryptionKey = process.env.ENCRYPTION_KEY;
+    if (!encryptionKey) {
+      throw new Error('Encryption key not found');
+    }
+    
+    // Extract the initialization vector and encrypted data
+    const parts = encryptedValue.split(':');
+    if (parts.length !== 2) {
+      throw new Error('Invalid encrypted format');
+    }
+    
+    const iv = Buffer.from(parts[0], 'hex');
+    const encryptedData = Buffer.from(parts[1], 'hex');
+    
+    // Create a decipher using AES-256-CBC
+    const decipher = crypto.createDecipheriv(
+      'aes-256-cbc',
+      Buffer.from(encryptionKey),
+      iv
+    );
+    
+    // Decrypt the data
+    let decrypted = decipher.update(encryptedData);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    
+    return decrypted.toString();
+  } catch (error) {
+    console.error('Error decrypting field:', error);
+    return '[Decryption Error]';
+  }
+};
 
 // Helper function to check if a user has permission to access a credential
 const checkCredentialPermission = async (credentialId, userId, requiredPermission = 'view') => {
@@ -137,66 +175,115 @@ const checkCredentialPermission = async (credentialId, userId, requiredPermissio
 // Create a new credential
 exports.createCredential = async (req, res) => {
   try {
-    // Get the groups from the request
-    const groupIds = Array.isArray(req.body.groupIds) ? req.body.groupIds : [req.body.groupId];
+    console.log('Creating credential, user role:', req.user.role);
     
-    if (groupIds.length === 0) {
+    // Validate required fields
+    if (!req.body.websiteName) {
+      return res.status(400).json({
+        status: 'fail',
+        message: 'Website name is required'
+      });
+    }
+    
+    // Check if user is admin
+    const isAdmin = req.user.role === 'admin';
+    
+    // Get group IDs from request
+    let groupIds = [];
+    
+    if (req.body.groupIds && Array.isArray(req.body.groupIds)) {
+      groupIds = req.body.groupIds;
+    } else if (req.body.groupId) {
+      groupIds = [req.body.groupId];
+    }
+    
+    // Verify that all groups exist and user has access
+    if (groupIds.length > 0) {
+      for (const groupId of groupIds) {
+        const group = await Group.findByPk(groupId);
+        
+        if (!group) {
+          return res.status(404).json({
+            status: 'fail',
+            message: `Group with ID ${groupId} not found`
+          });
+        }
+        
+        // Check if user is admin, group owner, or member with edit permission
+        if (!isAdmin) {
+          const isOwner = group.ownerId === req.user.id;
+          
+          if (!isOwner) {
+            // Check if user is a member with edit permission
+            const membership = await group.getMembers({
+              where: { id: req.user.id },
+              through: { where: { permission: 'edit' } }
+            });
+            
+            if (membership.length === 0) {
+              return res.status(403).json({
+                status: 'fail',
+                message: `You do not have permission to add credentials to group with ID ${groupId}`
+              });
+            }
+          }
+        }
+      }
+    } else {
       return res.status(400).json({
         status: 'fail',
         message: 'At least one group must be specified'
       });
     }
     
-    // Verify all groups exist
-    for (const groupId of groupIds) {
-      const group = await Group.findByPk(groupId);
-      
-      if (!group) {
-        return res.status(404).json({
-          status: 'fail',
-          message: `Group with ID ${groupId} not found`
-        });
-      }
-      
-      console.log(`Group found: ${group.name} (ID: ${groupId})`);
-    }
-    
-    console.log('All groups verified - allowing credential assignment to any group');
-    
-    // Admin users get special logging
-    if (req.user.role === 'admin') {
+    if (isAdmin) {
       console.log('Admin user creating credential');
     }
 
-    // Create the credential without groupId
-    const { groupId, groupIds: groupIdsFromBody, ...credentialData } = req.body;
-    
-    const credential = await Credential.create({
-      ...credentialData,
+    // Create the credential
+    const { websiteName, url, email, userId, password, token, description } = req.body;
+    const newCredential = await Credential.create({
+      websiteName,
+      url,
+      email,
+      userId,
+      password: password || '', 
+      token,
+      description,
       ownerId: req.user.id
     });
-    
-    // Create initial version record
+
+    // Create initial version record with unencrypted values for better readability
     await CredentialVersion.create({
-      credentialId: credential.id,
-      websiteName: credential.websiteName,
-      url: credential.url || null,
-      email: credential.email || null,
-      userId: credential.userId || null,
-      password: credential.password,
-      token: credential.token || null,
-      description: credential.description || null,
+      credentialId: newCredential.id,
+      websiteName: websiteName,
+      url: url,
+      email: email,
+      userId: userId,
+      // Store the encrypted password that was just created
+      password: newCredential.password,
+      token: newCredential.token,
+      description: description,
       versionNumber: 1,
       changedBy: req.user.id,
       changeType: 'create',
-      changedFields: Object.keys(credentialData)
+      changedFields: ['websiteName', 'url', 'email', 'userId', 'password', 'token', 'description'],
+      fieldChanges: {
+        websiteName: { oldValue: null, newValue: websiteName },
+        url: { oldValue: null, newValue: url },
+        email: { oldValue: null, newValue: email },
+        userId: { oldValue: null, newValue: userId },
+        password: { oldValue: null, newValue: password },
+        token: { oldValue: null, newValue: token },
+        description: { oldValue: null, newValue: description }
+      }
     });
 
     // Create credential-group associations
     const credentialGroups = [];
     for (let i = 0; i < groupIds.length; i++) {
       credentialGroups.push({
-        credentialId: credential.id,
+        credentialId: newCredential.id,
         groupId: groupIds[i],
         isPrimary: i === 0 // First group is primary
       });
@@ -209,9 +296,9 @@ exports.createCredential = async (req, res) => {
       userId: req.user.id,
       action: 'create_credential',
       resourceType: 'credential',
-      resourceId: credential.id,
+      resourceId: newCredential.id,
       details: { 
-        websiteName: credential.websiteName,
+        websiteName: newCredential.websiteName,
         groupIds: groupIds
       },
       ipAddress: req.ip,
@@ -219,7 +306,7 @@ exports.createCredential = async (req, res) => {
     });
 
     // Fetch the credential with its groups to return in the response
-    const credentialWithGroups = await Credential.findByPk(credential.id, {
+    const credentialWithGroups = await Credential.findByPk(newCredential.id, {
       include: [
         { model: Group },
         { 
@@ -465,73 +552,67 @@ exports.getAllCredentials = async (req, res) => {
 // Get a single credential
 exports.getCredential = async (req, res) => {
   try {
-    // Check if user has permission to view the credential
-    const { hasPermission, message, credential: permissionCredential } = await checkCredentialPermission(
-      req.params.id, 
-      req.user.id,
-      'view'
-    );
-
+    const credentialId = req.params.id;
+    const userId = req.user.id;
+    const shouldDecrypt = req.query.decrypted === 'true';
+    
+    console.log(`Getting credential ${credentialId} for user ${userId}, decrypt: ${shouldDecrypt}`);
+    
+    // Check if PIN verification is required
+    if (req.pinVerificationRequired) {
+      console.log(`PIN verification required for credential ${credentialId}`);
+      return res.status(403).json({
+        status: 'fail',
+        message: 'PIN verification required',
+        data: {
+          requirePin: true,
+          credentialId
+        }
+      });
+    }
+    
+    // Check if user has permission to view this credential
+    const { hasPermission, message, credential } = await checkCredentialPermission(credentialId, userId);
+    
     if (!hasPermission) {
       return res.status(403).json({
         status: 'fail',
-        message: message || 'You do not have permission to view this credential'
-      });
-    }
-
-    // Use the credential from permission check or fetch it again if needed
-    const credential = permissionCredential || await Credential.findByPk(req.params.id, {
-      include: [
-        {
-          model: Group,
-          through: { attributes: [] } // Exclude join table attributes
-        },
-        {
-          model: User,
-          as: 'owner',
-          attributes: ['id', 'name', 'email']
-        },
-        {
-          model: CredentialAccess,
-          include: [{
-            model: User,
-            attributes: ['id', 'name', 'email']
-          }]
-        }
-      ]
-    });
-    
-    if (!credential) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Credential not found'
+        message
       });
     }
     
-    // Decrypt sensitive information if needed
-    let responseCredential = credential.toJSON();
-    
-    if (req.query.decrypted === 'true') {
-      responseCredential.password = credential.decryptPassword();
-      if (credential.token) {
-        responseCredential.token = credential.decryptToken();
-      }
-    }
-
     // Log activity
     await Activity.create({
-      userId: req.user.id,
+      userId,
       action: 'view_credential',
       resourceType: 'credential',
-      resourceId: credential.id,
-      details: { 
-        websiteName: credential.websiteName,
-        decrypted: req.query.decrypted === 'true'
-      },
+      resourceId: credentialId,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent']
     });
-
+    
+    // If decryption is requested, decrypt sensitive fields
+    let responseCredential = { ...credential.toJSON() };
+    
+    if (shouldDecrypt) {
+      try {
+        // Decrypt password and token if they exist
+        if (responseCredential.password) {
+          responseCredential.password = await decryptField(responseCredential.password);
+        }
+        
+        if (responseCredential.token) {
+          responseCredential.token = await decryptField(responseCredential.token);
+        }
+      } catch (decryptError) {
+        console.error('Error decrypting credential fields:', decryptError);
+        return res.status(500).json({
+          status: 'fail',
+          message: 'Failed to decrypt credential data'
+        });
+      }
+    }
+    
     res.status(200).json({
       status: 'success',
       data: {
@@ -539,7 +620,7 @@ exports.getCredential = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Error getting credential:', err);
+    console.error('Error fetching credential:', err);
     res.status(400).json({
       status: 'fail',
       message: err.message
@@ -551,6 +632,18 @@ exports.getCredential = async (req, res) => {
 exports.updateCredential = async (req, res) => {
   try {
     console.log('Updating credential, user role:', req.user.role);
+    
+    // Check if PIN verification is required
+    if (req.pinVerificationRequired) {
+      return res.status(403).json({
+        status: 'fail',
+        message: 'PIN verification required',
+        data: {
+          requirePin: true,
+          credentialId: req.params.id
+        }
+      });
+    }
     
     // Check if user is admin (admins can update any credential)
     const isAdmin = req.user.role === 'admin';
@@ -597,29 +690,130 @@ exports.updateCredential = async (req, res) => {
     
     const versionNumber = latestVersion ? latestVersion.versionNumber + 1 : 1;
     
-    // Determine which fields changed
+    // Determine which fields changed with their old and new values
     const changedFields = [];
-    for (const key in req.body) {
-      if (credential[key] !== req.body[key]) {
-        changedFields.push(key);
+    const fieldChanges = {};
+    
+    // Check for changes in groupIds if present in the request
+    if (req.body.groupIds) {
+      // Get current groupIds
+      const currentGroups = await credential.getGroups();
+      const currentGroupIds = currentGroups.map(group => group.id);
+      
+      // Sort both arrays for proper comparison
+      const sortedCurrentGroupIds = [...currentGroupIds].sort();
+      const sortedNewGroupIds = [...req.body.groupIds].sort();
+      
+      // Check if arrays are different
+      const groupsChanged = JSON.stringify(sortedCurrentGroupIds) !== JSON.stringify(sortedNewGroupIds);
+      
+      if (groupsChanged) {
+        changedFields.push('groupIds');
+        fieldChanges.groupIds = {
+          oldValue: currentGroupIds,
+          newValue: req.body.groupIds
+        };
       }
     }
     
-    // Create new version record
-    await CredentialVersion.create({
-      credentialId: credential.id,
-      websiteName: req.body.websiteName || credential.websiteName,
-      url: req.body.url || credential.url,
-      email: req.body.email || credential.email,
-      userId: req.body.userId || credential.userId,
-      password: req.body.password || credential.password,
-      token: req.body.token || credential.token,
-      description: req.body.description || credential.description,
-      versionNumber: versionNumber,
-      changedBy: req.user.id,
-      changeType: 'update',
-      changedFields: changedFields
-    });
+    // Check for changes in other fields
+    const trackableFields = ['websiteName', 'url', 'email', 'userId', 'password', 'token', 'description'];
+    
+    for (const field of trackableFields) {
+      if (req.body[field] !== undefined && credential[field] !== req.body[field]) {
+        changedFields.push(field);
+        fieldChanges[field] = {
+          oldValue: credential[field],
+          newValue: req.body[field]
+        };
+      }
+    }
+    
+    // Only create a version if something actually changed
+    if (changedFields.length > 0) {
+      try {
+        // For password and token fields, we need to get the actual values
+        // We'll use the decrypted values for better readability in the version history
+        const encryptionKey = process.env.ENCRYPTION_KEY;
+        
+        // Process password field if it changed
+        if (fieldChanges.password) {
+          try {
+            // Get the old decrypted password - use the credential's own method
+            const oldDecrypted = credential.decryptPassword();
+            
+            // Get the new password (it's not encrypted in req.body yet)
+            const newDecrypted = req.body.password;
+            
+            // Update fieldChanges with decrypted values
+            fieldChanges.password = {
+              oldValue: oldDecrypted,
+              newValue: newDecrypted
+            };
+          } catch (error) {
+            console.error('Error processing password for version history:', error);
+            // If decryption fails, just store the encrypted values
+            fieldChanges.password = {
+              oldValue: '(encrypted)',
+              newValue: '(new password)'
+            };
+          }
+        }
+        
+        // Process token field if it changed
+        if (fieldChanges.token) {
+          try {
+            if (credential.token) {
+              // Get the old decrypted token - use the credential's own method
+              const oldDecrypted = credential.decryptToken();
+              
+              // Create a new object for token changes
+              fieldChanges.token = {
+                oldValue: oldDecrypted,
+                newValue: req.body.token
+              };
+            } else {
+              // If there was no previous token, just set the new value
+              fieldChanges.token = {
+                oldValue: null,
+                newValue: req.body.token
+              };
+            }
+          } catch (error) {
+            console.error('Error processing token for version history:', error);
+            // If decryption fails, just store placeholders
+            fieldChanges.token = {
+              oldValue: credential.token ? '(encrypted)' : null,
+              newValue: '(new token)'
+            };
+          }
+        }
+        
+        // Create new version record with all values
+        const versionData = {
+          credentialId: credential.id,
+          websiteName: credential.websiteName,
+          url: credential.url,
+          email: credential.email,
+          userId: credential.userId,
+          password: credential.password,
+          token: credential.token,
+          description: credential.description,
+          versionNumber: versionNumber,
+          changedBy: req.user.id,
+          changeType: 'update',
+          changedFields: changedFields,
+          fieldChanges: fieldChanges
+        };
+        
+        await CredentialVersion.create(versionData);
+        
+        console.log('Created version with changes:', changedFields);
+      } catch (versionError) {
+        // If there's an error creating the version, log it but continue with the update
+        console.error('Error creating credential version:', versionError);
+      }
+    }
     
     // Update the credential
     await credential.update(req.body);
@@ -663,6 +857,18 @@ exports.deleteCredential = async (req, res) => {
   try {
     console.log('Deleting credential, user role:', req.user.role);
     
+    // Check if PIN verification is required
+    if (req.pinVerificationRequired) {
+      return res.status(403).json({
+        status: 'fail',
+        message: 'PIN verification required',
+        data: {
+          requirePin: true,
+          credentialId: req.params.id
+        }
+      });
+    }
+    
     // Check if user is admin (admins can delete any credential)
     const isAdmin = req.user.role === 'admin';
     let credential;
@@ -691,29 +897,18 @@ exports.deleteCredential = async (req, res) => {
           message: message || 'You do not have permission to delete this credential'
         });
       }
-      
+
       credential = permissionCredential;
       
       // Only the owner can delete the credential (for non-admin users)
       if (credential.ownerId !== req.user.id) {
         return res.status(403).json({
           status: 'fail',
-          message: 'Only the credential owner can delete it'
+          message: 'Only the owner can delete this credential'
         });
       }
     }
 
-    // Log activity before deletion
-    await Activity.create({
-      userId: req.user.id,
-      action: 'delete_credential',
-      resourceType: 'credential',
-      resourceId: credential.id,
-      details: { websiteName: credential.websiteName },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
-    
     // Get previous version number
     const latestVersion = await CredentialVersion.findOne({
       where: { credentialId: credential.id },
@@ -721,8 +916,8 @@ exports.deleteCredential = async (req, res) => {
     });
     
     const versionNumber = latestVersion ? latestVersion.versionNumber + 1 : 1;
-    
-    // Create final version record marking deletion
+
+    // Create a final version record before deletion
     await CredentialVersion.create({
       credentialId: credential.id,
       websiteName: credential.websiteName,
@@ -735,9 +930,21 @@ exports.deleteCredential = async (req, res) => {
       versionNumber: versionNumber,
       changedBy: req.user.id,
       changeType: 'delete',
-      changedFields: ['deleted']
+      changedFields: [],
+      fieldChanges: {}
     });
 
+    // Log activity before deletion
+    await Activity.create({
+      userId: req.user.id,
+      action: 'delete_credential',
+      resourceType: 'credential',
+      resourceId: credential.id,
+      details: { websiteName: credential.websiteName },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+    
     // Delete the credential
     await credential.destroy();
 
@@ -970,6 +1177,18 @@ exports.getCredentialVersionHistory = async (req, res) => {
       }
     }
     
+    // Check if PIN verification is required
+    if (req.pinVerificationRequired) {
+      return res.status(403).json({
+        status: 'fail',
+        message: 'PIN verification required',
+        data: {
+          requirePin: true,
+          credentialId: req.params.id
+        }
+      });
+    }
+    
     // Fetch all versions of this credential
     const versions = await CredentialVersion.findAll({
       where: { credentialId: req.params.id },
@@ -980,6 +1199,102 @@ exports.getCredentialVersionHistory = async (req, res) => {
         attributes: ['id', 'name', 'email']
       }]
     });
+    
+    // Check if decryption is requested
+    const shouldDecrypt = req.query.decrypted === 'true';
+    
+    // Decrypt passwords if requested
+    if (shouldDecrypt) {
+      const encryptionKey = process.env.ENCRYPTION_KEY;
+      if (!encryptionKey) {
+        return res.status(500).json({
+          status: 'fail',
+          message: 'Server configuration error: Missing encryption key'
+        });
+      }
+      
+      // Get the credential model for decryption methods
+      const CredentialModel = credential.constructor;
+      
+      // Decrypt passwords for all versions
+      for (const version of versions) {
+        try {
+          // Create a temporary credential object for decryption
+          const tempCredential = Object.create(CredentialModel.prototype);
+          
+          // Decrypt main password field
+          if (version.password) {
+            tempCredential.password = version.password;
+            try {
+              version.password = tempCredential.decryptPassword(encryptionKey);
+            } catch (error) {
+              console.error('Error decrypting version password:', error);
+              version.password = '(decryption error)';
+            }
+          }
+          
+          // Decrypt main token field
+          if (version.token) {
+            tempCredential.token = version.token;
+            try {
+              version.token = tempCredential.decryptToken(encryptionKey);
+            } catch (error) {
+              console.error('Error decrypting version token:', error);
+              version.token = '(decryption error)';
+            }
+          }
+          
+          // Now handle the fieldChanges object
+          if (version.fieldChanges) {
+            // For each field that might have changed
+            for (const field of ['password', 'token']) {
+              if (version.fieldChanges[field]) {
+                const changes = version.fieldChanges[field];
+                
+                // The oldValue might already be decrypted or might be encrypted
+                if (changes.oldValue && typeof changes.oldValue === 'string' && changes.oldValue.startsWith('U2')) {
+                  // This is an encrypted value, decrypt it
+                  tempCredential[field] = changes.oldValue;
+                  try {
+                    changes.oldValue = field === 'password' 
+                      ? tempCredential.decryptPassword(encryptionKey)
+                      : tempCredential.decryptToken(encryptionKey);
+                  } catch (error) {
+                    console.error(`Error decrypting old ${field}:`, error);
+                    changes.oldValue = '(decryption error)';
+                  }
+                }
+                
+                // The newValue might already be decrypted or might be encrypted
+                if (changes.newValue && typeof changes.newValue === 'string' && changes.newValue.startsWith('U2')) {
+                  // This is an encrypted value, decrypt it
+                  tempCredential[field] = changes.newValue;
+                  try {
+                    changes.newValue = field === 'password'
+                      ? tempCredential.decryptPassword(encryptionKey)
+                      : tempCredential.decryptToken(encryptionKey);
+                  } catch (error) {
+                    console.error(`Error decrypting new ${field}:`, error);
+                    changes.newValue = '(decryption error)';
+                  }
+                }
+              }
+            }
+          }
+          
+          // Log the decrypted values for debugging
+          console.log('Decrypted version:', {
+            id: version.id,
+            versionNumber: version.versionNumber,
+            changedFields: version.changedFields,
+            hasFieldChanges: !!version.fieldChanges
+          });
+        } catch (decryptError) {
+          console.error('Error processing credential version:', decryptError);
+          // Continue with other versions even if one fails
+        }
+      }
+    }
 
     // Log activity
     await Activity.create({

@@ -2,6 +2,7 @@ const User = require('../models/user.model');
 const Activity = require('../models/activity.model');
 const sequelize = require('../database/connection');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 // Get current user
 exports.getMe = async (req, res) => {
@@ -130,21 +131,22 @@ exports.createUser = async (req, res) => {
 // Update a user (admin only)
 exports.updateUser = async (req, res) => {
   try {
-    // Don't allow password updates with this route
-    if (req.body.password) {
-      return res.status(400).json({
-        status: 'fail',
-        message: 'This route is not for password updates. Please use /updatePassword.'
-      });
+    // Prepare update data
+    const updateData = {
+      name: req.body.name,
+      email: req.body.email,
+      role: req.body.role,
+      active: req.body.active
+    };
+    
+    // If password is provided and not empty, hash it and include in update
+    if (req.body.password && req.body.password.trim() !== '') {
+      // Hash the password
+      updateData.password = await bcrypt.hash(req.body.password, 12);
     }
 
     const user = await User.update(
-      {
-        name: req.body.name,
-        email: req.body.email,
-        role: req.body.role,
-        active: req.body.active
-      },
+      updateData,
       {
         where: { id: req.params.id },
         returning: true,
@@ -164,7 +166,7 @@ exports.updateUser = async (req, res) => {
       userId: req.user.id,
       action: 'change_user_permission', // Using an existing action type
       resourceType: 'user',
-      resourceId: user[1].id,
+      resourceId: req.params.id, // Use the params.id which is guaranteed to exist
       details: { 
         name: user[1].name,
         email: user[1].email,

@@ -26,7 +26,9 @@ import {
   MenuItem,
   CircularProgress,
   Tooltip,
-  Alert
+  Alert,
+  FormControlLabel,
+  Switch
 } from '@mui/material';
 import {
   PersonAdd as PersonAddIcon,
@@ -168,7 +170,8 @@ const AdminPanel = () => {
       name: user.name,
       email: user.email,
       password: '',
-      role: user.role
+      role: user.role,
+      active: user.active !== undefined ? user.active : true
     });
     setOpenEditUserDialog(true);
   };
@@ -614,7 +617,7 @@ const AdminPanel = () => {
             onChange={handleUserFormChange}
             sx={{ mb: 2 }}
           />
-          <FormControl fullWidth required>
+          <FormControl fullWidth required sx={{ mb: 2 }}>
             <InputLabel id="edit-role-label">Role</InputLabel>
             <Select
               labelId="edit-role-label"
@@ -628,6 +631,31 @@ const AdminPanel = () => {
               <MenuItem value="admin">Admin</MenuItem>
             </Select>
           </FormControl>
+          
+          <FormControlLabel
+            control={
+              <Switch
+                checked={userForm.active}
+                onChange={(e) => setUserForm({ ...userForm, active: e.target.checked })}
+                color="success"
+              />
+            }
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <Typography>
+                  Status: {userForm.active ? 'Active' : 'Inactive'}
+                </Typography>
+                <Chip 
+                  label={userForm.active ? 'Active' : 'Inactive'} 
+                  color={userForm.active ? 'success' : 'error'} 
+                  size="small"
+                  sx={{ ml: 1 }}
+                  icon={userForm.active ? <CheckIcon /> : <CloseIcon />}
+                />
+              </Box>
+            }
+            sx={{ mt: 1 }}
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseEditUserDialog}>Cancel</Button>

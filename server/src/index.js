@@ -26,6 +26,7 @@ const Setting = require('./models/setting.model');
 const OTP = require('./models/otp.model');
 const TrustedDevice = require('./models/trustedDevice.model');
 const PendingRegistration = require('./models/pendingRegistration.model');
+const UserPin = require('./models/userPin.model');
 
 // Define model associations
 const setupAssociations = () => {
@@ -100,6 +101,7 @@ const groupRoutes = require('./routes/group.routes');
 const credentialRoutes = require('./routes/credential.routes');
 const activityRoutes = require('./routes/activity.routes');
 const settingRoutes = require('./routes/setting.routes');
+const pinRoutes = require('./routes/pin.routes');
 
 // Initialize Express app
 const app = express();
@@ -133,10 +135,11 @@ if (process.env.NODE_ENV === 'development') {
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
-app.use('/api/v1/groups', groupRoutes);
 app.use('/api/v1/credentials', credentialRoutes);
+app.use('/api/v1/groups', groupRoutes);
 app.use('/api/v1/activities', activityRoutes);
 app.use('/api/v1/settings', settingRoutes);
+app.use('/api/v1/pins', pinRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -172,7 +175,7 @@ const startServer = async () => {
     }
     
     // Start server
-    const PORT = process.env.PORT || 5000;
+    const PORT = process.env.PORT || 5002;
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   } catch (error) {
     console.error('Unable to connect to the database:', error);

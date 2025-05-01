@@ -132,75 +132,94 @@ class EmailService {
    * @param {string} email - Recipient email
    * @param {string} otp - One-time password
    * @param {string} purpose - Purpose of OTP (login, registration, reset)
+   * @param {string} customPurpose - Optional custom purpose for display in email
    * @returns {Promise<boolean>} - True if email was sent successfully
    */
-  async sendOTP(email, otp, purpose) {
+  async sendOTP(email, otp, purpose, customPurpose = null) {
     let subject, text, html;
 
-    switch (purpose) {
-      case 'login':
-        subject = 'Login Verification Code';
-        text = `Your login verification code is: ${otp}. This code will expire in 10 minutes.`;
-        html = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Login Verification Code</h2>
-            <p>You are attempting to log in to your Password Manager account from a new device or location.</p>
-            <p>Your verification code is:</p>
-            <div style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-              ${otp}
-            </div>
-            <p>This code will expire in 10 minutes.</p>
-            <p>If you did not attempt to log in, please change your password immediately.</p>
+    // Handle custom purpose for PIN generation
+    if (purpose === 'reset' && customPurpose === 'pin_generation') {
+      subject = 'PIN Generation Verification';
+      text = `Your PIN generation verification code is: ${otp}. This code will expire in 10 minutes.`;
+      html = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2>PIN Generation Verification</h2>
+          <p>You have requested to generate a PIN for your Password Manager account.</p>
+          <p>Your verification code is:</p>
+          <div style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
+            ${otp}
           </div>
-        `;
-        break;
-      
-      case 'registration':
-        subject = 'Complete Your Registration';
-        text = `Your registration verification code is: ${otp}. This code will expire in 10 minutes.`;
-        html = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Complete Your Registration</h2>
-            <p>Thank you for registering with Password Manager.</p>
-            <p>Your verification code is:</p>
-            <div style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-              ${otp}
+          <p>This code will expire in 10 minutes.</p>
+          <p>If you did not request to generate a PIN, please ignore this email or contact support.</p>
+        </div>
+      `;
+    } else {
+      switch (purpose) {
+        case 'login':
+          subject = 'Login Verification Code';
+          text = `Your login verification code is: ${otp}. This code will expire in 10 minutes.`;
+          html = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2>Login Verification Code</h2>
+              <p>You are attempting to log in to your Password Manager account from a new device or location.</p>
+              <p>Your verification code is:</p>
+              <div style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
+                ${otp}
+              </div>
+              <p>This code will expire in 10 minutes.</p>
+              <p>If you did not attempt to log in, please change your password immediately.</p>
             </div>
-            <p>This code will expire in 10 minutes.</p>
-          </div>
-        `;
-        break;
-      
-      case 'reset':
-        subject = 'Password Reset Request';
-        text = `Your password reset code is: ${otp}. This code will expire in 10 minutes.`;
-        html = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Password Reset Request</h2>
-            <p>We received a request to reset your password.</p>
-            <p>Your password reset code is:</p>
-            <div style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-              ${otp}
+          `;
+          break;
+        
+        case 'registration':
+          subject = 'Complete Your Registration';
+          text = `Your registration verification code is: ${otp}. This code will expire in 10 minutes.`;
+          html = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2>Complete Your Registration</h2>
+              <p>Thank you for registering with Password Manager.</p>
+              <p>Your verification code is:</p>
+              <div style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
+                ${otp}
+              </div>
+              <p>This code will expire in 10 minutes.</p>
             </div>
-            <p>This code will expire in 10 minutes.</p>
-            <p>If you did not request a password reset, please ignore this email or contact support.</p>
-          </div>
-        `;
-        break;
-      
-      default:
-        subject = 'Verification Code';
-        text = `Your verification code is: ${otp}. This code will expire in 10 minutes.`;
-        html = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2>Verification Code</h2>
-            <p>Your verification code is:</p>
-            <div style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-              ${otp}
+          `;
+          break;
+        
+        case 'reset':
+          subject = 'Password Reset Request';
+          text = `Your password reset code is: ${otp}. This code will expire in 10 minutes.`;
+          html = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2>Password Reset Request</h2>
+              <p>We received a request to reset your password.</p>
+              <p>Your password reset code is:</p>
+              <div style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
+                ${otp}
+              </div>
+              <p>This code will expire in 10 minutes.</p>
+              <p>If you did not request a password reset, please ignore this email or contact support.</p>
             </div>
-            <p>This code will expire in 10 minutes.</p>
-          </div>
-        `;
+          `;
+          break;
+        
+        default:
+          subject = 'Verification Code';
+          text = `Your verification code is: ${otp}. This code will expire in 10 minutes.`;
+          html = `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+              <h2>Verification Code</h2>
+              <p>Your verification code is:</p>
+              <div style="background-color: #f4f4f4; padding: 10px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
+                ${otp}
+              </div>
+              <p>This code will expire in 10 minutes.</p>
+            </div>
+          `;
+      }
     }
 
     return this.sendEmail({

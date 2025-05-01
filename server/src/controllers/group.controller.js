@@ -243,6 +243,18 @@ exports.deleteGroup = async (req, res) => {
   try {
     console.log('Deleting group, user role:', req.user.role);
     
+    // Check if PIN verification is required
+    if (req.pinVerificationRequired) {
+      return res.status(403).json({
+        status: 'fail',
+        message: 'PIN verification required',
+        data: {
+          requirePin: true,
+          groupId: req.params.id
+        }
+      });
+    }
+    
     const group = await Group.findByPk(req.params.id);
 
     if (!group) {

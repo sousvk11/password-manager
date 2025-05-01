@@ -1,28 +1,26 @@
 import React, { useState, useContext, useEffect } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import { 
-  Container, 
-  Box, 
-  Typography, 
-  TextField, 
-  Button, 
-  Link, 
-  Paper, 
-  Avatar,
-  InputAdornment,
-  IconButton,
-  CircularProgress,
+import {
+  Container,
+  Box,
+  Typography,
+  TextField,
+  Button,
+  Paper,
   Stepper,
   Step,
   StepLabel,
-  Alert
+  IconButton,
+  InputAdornment,
+  CircularProgress,
+  Alert,
+  Link,
+  Avatar
 } from '@mui/material';
-import { 
+import {
   PersonAddOutlined as PersonAddIcon,
   Visibility,
-  VisibilityOff,
-  Email as EmailIcon,
-  VpnKey as VpnKeyIcon
+  VisibilityOff
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import AuthContext from '../context/AuthContext';
@@ -43,7 +41,7 @@ const Register = () => {
   // OTP verification state
   const [activeStep, setActiveStep] = useState(0);
   const [otp, setOtp] = useState('');
-  const [userId, setUserId] = useState(null);
+  const [registrationId, setRegistrationId] = useState(null); // Changed from userId to registrationId
   const [otpError, setOtpError] = useState('');
   const [resendDisabled, setResendDisabled] = useState(false);
   const [countdown, setCountdown] = useState(0);
@@ -106,9 +104,9 @@ const Register = () => {
       const response = await register(name, email, password);
       console.log('Registration initiated:', response);
       
-      // Store userId for OTP verification
+      // Store registration ID for OTP verification
       if (response.data && response.data.userId) {
-        setUserId(response.data.userId);
+        setRegistrationId(response.data.userId);
       }
       
       // Move to OTP verification step

@@ -1,0 +1,23 @@
+{
+  "development": {
+    "username": "svk",
+    "password": "svk",
+    "database": "password_manager",
+    "host": "localhost",
+    "dialect": "mysql"
+  },
+  "test": {
+    "username": "svk",
+    "password": "svk",
+    "database": "password_manager_test",
+    "host": "localhost",
+    "dialect": "mysql"
+  },
+  "production": {
+    "username": "svk",
+    "password": "svk",
+    "database": "password_manager",
+    "host": "localhost",
+    "dialect": "mysql"
+  }
+}

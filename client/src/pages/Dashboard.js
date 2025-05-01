@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import {
-  Box,
+import { 
+  Box, 
   Typography,
   Tabs,
   Tab,
@@ -29,19 +28,24 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Visibility as ViewIcon,
+  Visibility as VisibilityIcon,
+  VisibilityOff as VisibilityOffIcon,
   ContentCopy as CopyIcon,
   Group as GroupIcon,
   VpnKey as VpnKeyIcon,
-  VisibilityOff as VisibilityOffIcon,
+  History as HistoryIcon,
   Close as CloseIcon,
-  History as HistoryIcon
+  Logout as LogoutIcon
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import axios from '../utils/axiosConfig';
 import AuthContext from '../context/AuthContext';
 import CredentialVersionHistory from '../components/CredentialVersionHistory';
 import GroupAccessManager from '../components/GroupAccessManager';
+import PinVerificationDialog from '../components/PinVerificationDialog';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import deletedItemsManager from '../utils/deleteHelper';
+import { isPinVerificationRequired } from '../utils/pinUtils';
 
 const Dashboard = () => {
   const { currentUser } = useContext(AuthContext);
@@ -55,6 +59,7 @@ const Dashboard = () => {
   const [credentials, setCredentials] = useState([]);
   const [filteredCredentials, setFilteredCredentials] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState(null);
+  const [selectedGroupId, setSelectedGroupId] = useState('');
   const [loading, setLoading] = useState(true);
   
   // Dialog states
@@ -66,7 +71,92 @@ const Dashboard = () => {
   const [openVersionHistoryDialog, setOpenVersionHistoryDialog] = useState(false);
   const [openGroupAccessManagerDialog, setOpenGroupAccessManagerDialog] = useState(false);
   const [selectedCredentialId, setSelectedCredentialId] = useState(null);
-  const [selectedGroupId, setSelectedGroupId] = useState(null);
+  const [pinVerificationOpen, setPinVerificationOpen] = useState(false);
+  const [pendingCredentialId, setPendingCredentialId] = useState(null);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [pinVerificationAttempts, setPinVerificationAttempts] = useState(0);
+  const [pendingDeleteItem, setPendingDeleteItem] = useState({ id: '', type: '' });
+  const [isPinEnabled, setIsPinEnabled] = useState(true); // Default to true for security
+  
+  // Fetch data function
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      // Check if token exists
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('No authentication token found');
+        toast.error('Authentication error. Please log in again.');
+        return;
+      }
+
+      // Set authorization header
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      
+      console.log('Fetching groups...');
+      // Fetch groups
+      const groupsResponse = await axios.get('/groups');
+      const allGroups = groupsResponse.data.data.groups;
+      
+      // Filter groups to only show those the user owns or is a member of
+      const userVisibleGroups = allGroups.filter(group => {
+        // Check if user is the owner
+        const isOwner = group.ownerId === currentUser.id;
+        
+        // Check if user is a member
+        const isMember = group.members && Array.isArray(group.members) && 
+          group.members.some(member => {
+            const memberId = member.id || member.userId || (member.User && member.User.id);
+            return memberId === currentUser.id;
+          });
+        
+        // Admin users can see all groups
+        const isAdmin = currentUser.role === 'admin';
+        
+        return isOwner || isMember || isAdmin;
+      });
+      
+      // Set filtered groups that user can see
+      setGroups(userVisibleGroups);
+      
+      // Separate user-owned groups
+      const userOwnedGroups = allGroups.filter(group => group.ownerId === currentUser.id);
+      setMyGroups(userOwnedGroups);
+      
+      console.log('Fetching credentials...');
+      // Fetch credentials
+      const credentialsResponse = await axios.get('/credentials');
+      const fetchedCredentials = credentialsResponse.data.data.credentials;
+      setCredentials(fetchedCredentials);
+      setFilteredCredentials(fetchedCredentials);
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      toast.error('Failed to load data. Please refresh the page.');
+      setLoading(false);
+    }
+  };
+  
+  // Fetch PIN status from server
+  const fetchPinStatus = async () => {
+    try {
+      const response = await axios.get('/pins/status');
+      if (response.data && response.data.status === 'success') {
+        setIsPinEnabled(response.data.data.enabled);
+        console.log('PIN status loaded:', response.data.data.enabled);
+      }
+    } catch (error) {
+      console.error('Error checking PIN status:', error);
+      // Default to true for security if we can't check
+      setIsPinEnabled(true);
+    }
+  };
+  
+  // This useEffect has been moved to the main useEffect hook below
+  
+  const [versionHistoryCredentialId, setVersionHistoryCredentialId] = useState(null);
+  const [versionHistory, setVersionHistory] = useState([]);
   
   // Form states
   const [groupForm, setGroupForm] = useState({ name: '', description: '' });
@@ -80,7 +170,55 @@ const Dashboard = () => {
     description: '',
     groups: []
   });
+  
+  // Temporary state to hold credential form data during PIN verification
+  const [tempCredentialForm, setTempCredentialForm] = useState(null);
   const [deleteItem, setDeleteItem] = useState({ id: '', type: '' });
+  
+  // Function to force a complete refresh of all data
+  const forceRefresh = async () => {
+    console.log('Forcing complete data refresh');
+    setLoading(true);
+    
+    try {
+      // Fetch fresh groups data
+      const groupsResponse = await axios.get('/groups');
+      
+      if (groupsResponse.data && groupsResponse.data.data && groupsResponse.data.data.groups) {
+        const allGroups = groupsResponse.data.data.groups;
+        setGroups(allGroups);
+        
+        // Filter groups created/owned by the current user only
+        const userOwnedGroups = allGroups.filter(group => 
+          group.UserId === currentUser?.id || group.ownerId === currentUser?.id
+        );
+        setMyGroups(userOwnedGroups);
+      }
+      
+      // Fetch fresh credentials data
+      const credentialsResponse = await axios.get('/credentials?decrypted=true');
+      
+      if (credentialsResponse.data && credentialsResponse.data.data && credentialsResponse.data.data.credentials) {
+        setCredentials(credentialsResponse.data.data.credentials);
+        setFilteredCredentials(credentialsResponse.data.data.credentials);
+      }
+    } catch (error) {
+      console.error('Error during force refresh:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Reset PIN verification state
+  const resetPinVerification = () => {
+    setPendingCredentialId(null);
+    setPendingAction(null);
+    setPinVerificationAttempts(0);
+    setTempCredentialForm(null);
+    setPinVerificationOpen(false);
+    // Reset the pending delete item after the operation is complete
+    setPendingDeleteItem({ id: '', type: '' });
+  };
   
   // Set tab based on URL parameter
   useEffect(() => {
@@ -91,8 +229,14 @@ const Dashboard = () => {
       setTabValue(1);
     } else if (view === 'credentials') {
       setTabValue(2);
+      
+      // Check for groupId parameter when on credentials tab (handle different parameter names)
+      const groupId = searchParams.get('groupId') || searchParams.get('GroudId') || searchParams.get('GroupId');
+      if (groupId && credentials.length > 0 && groups.length > 0) {
+        filterCredentialsByGroup(groupId);
+      }
     }
-  }, [searchParams]);
+  }, [searchParams, credentials.length, groups.length]);
   
   // Effect to run on component mount
   useEffect(() => {
@@ -102,103 +246,9 @@ const Dashboard = () => {
       fetchData();
     };
     
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        // Check if token exists
-        const token = localStorage.getItem('token');
-        if (!token) {
-          console.error('No authentication token found');
-          toast.error('Authentication error. Please log in again.');
-          return;
-        }
-
-        // Set authorization header
-        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        
-        console.log('Fetching groups...');
-        // Fetch groups
-        const groupsResponse = await axios.get('/groups');
-        console.log('Groups response:', groupsResponse.data);
-        // Handle different response formats
-        let allGroups = [];
-        if (groupsResponse.data.data && groupsResponse.data.data.groups) {
-          allGroups = groupsResponse.data.data.groups;
-        } else if (Array.isArray(groupsResponse.data.data)) {
-          allGroups = groupsResponse.data.data;
-        }
-        
-        console.log('All groups before filtering:', allGroups);
-        
-        // Check if user is admin
-        const isAdmin = currentUser && currentUser.role === 'admin';
-        console.log('Current user is admin:', isAdmin);
-        
-        if (isAdmin) {
-          // Admin users can see all groups
-          console.log('Admin user - showing all groups');
-          setGroups(allGroups);
-        } else {
-          // Regular users can only see groups they own or are members of
-          const userMemberGroups = allGroups.filter(group => {
-            // Check if user is owner
-            const isOwner = group.UserId === currentUser?.id || group.ownerId === currentUser?.id;
-            
-            // Check if user is a member
-            const isMember = group.members && Array.isArray(group.members) && 
-              group.members.some(member => {
-                const memberId = member.id || member.userId || (member.User && member.User.id);
-                return memberId === currentUser?.id;
-              });
-              
-            return isOwner || isMember;
-          });
-          
-          console.log('Groups where user is owner or member:', userMemberGroups);
-          setGroups(userMemberGroups);
-        }
-        
-        // Filter groups created/owned by the current user only
-        const userOwnedGroups = allGroups.filter(group => 
-          group.UserId === currentUser?.id || group.ownerId === currentUser?.id
-        );
-        console.log('Groups owned by user:', userOwnedGroups);
-        setMyGroups(userOwnedGroups);
-        
-        console.log('Fetching credentials...');
-        // Fetch credentials
-        try {
-          // Add decrypted=true parameter to get decrypted passwords
-          const credentialsResponse = await axios.get('/credentials?decrypted=true');
-          
-          if (credentialsResponse.data && credentialsResponse.data.data && credentialsResponse.data.data.credentials) {
-            setCredentials(credentialsResponse.data.data.credentials);
-            setFilteredCredentials(credentialsResponse.data.data.credentials);
-          } else if (credentialsResponse.data && credentialsResponse.data.credentials) {
-            setCredentials(credentialsResponse.data.credentials);
-            setFilteredCredentials(credentialsResponse.data.credentials);
-          } else {
-            console.error('Unexpected credentials response format:', credentialsResponse.data);
-            setCredentials([]);
-            setFilteredCredentials([]);
-          }
-        } catch (error) {
-          console.error('Error fetching credentials:', error);
-          console.error('Error details:', error.response?.data);
-          toast.error(error.response?.data?.message || 'Failed to load credentials. Please try again.');
-        }
-        
-        toast.success('Data loaded successfully!');
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        console.error('Error details:', error.response?.data);
-        toast.error(error.response?.data?.message || 'Failed to load data. Please try again.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    
+    // Initial data fetch
     fetchData();
+    fetchPinStatus();
     
     // Cleanup function to remove global refresh function
     return () => {
@@ -215,30 +265,91 @@ const Dashboard = () => {
     } else if (newValue === 2) {
       view = 'credentials';
     }
-    setSearchParams({ view });
+    
+    // Preserve the group filter when changing tabs
+    const params = { view };
+    
+    // Only preserve group filter when on credentials tab
+    if (newValue === 2 && selectedGroupId) {
+      params.groupId = selectedGroupId;
+    }
+    
+    // Don't reset filter when staying on credentials tab
+    if (tabValue !== 2 || newValue !== 2) {
+      // Reset group filter when changing to a different tab
+      setSelectedGroupId('');
+      setSelectedGroup(null);
+      setFilteredCredentials(credentials);
+    }
+    
+    setSearchParams(params);
   };
   
   // Filter credentials by group
   const filterCredentialsByGroup = (groupId) => {
+    console.log('Filtering by group ID:', groupId);
+    
     if (!groupId) {
       // If no group is selected, show all credentials
+      console.log('No group selected, showing all credentials');
       setFilteredCredentials(credentials);
       setSelectedGroup(null);
+      setSelectedGroupId('');
+      
+      // Update URL to remove groupId parameter
+      const currentParams = Object.fromEntries(searchParams.entries());
+      delete currentParams.groupId;
+      delete currentParams.GroudId;
+      delete currentParams.GroupId;
+      setSearchParams(currentParams);
       return;
     }
     
-    // Find the selected group - handle both string and number IDs
-    const group = groups.find(g => g.id === parseInt(groupId, 10) || g.id === groupId);
+    // Convert to string for consistency
+    const groupIdStr = String(groupId);
+    console.log('Looking for group with ID:', groupIdStr);
+    
+    // Find the selected group
+    const group = groups.find(g => String(g.id) === groupIdStr);
+    
+    if (!group) {
+      console.error(`Group with ID ${groupIdStr} not found`);
+      setFilteredCredentials(credentials);
+      setSelectedGroup(null);
+      setSelectedGroupId('');
+      
+      // Update URL to remove groupId parameter
+      const currentParams = Object.fromEntries(searchParams.entries());
+      delete currentParams.groupId;
+      delete currentParams.GroudId;
+      delete currentParams.GroupId;
+      setSearchParams(currentParams);
+      return;
+    }
+    
+    console.log('Found group:', group.name);
     setSelectedGroup(group);
+    setSelectedGroupId(groupIdStr);
     
     // Filter credentials that belong to the selected group
-    const filtered = credentials.filter(credential => 
-      credential.Groups && credential.Groups.some(g => 
-        g.id === parseInt(groupId, 10) || g.id === groupId
-      )
-    );
+    const filtered = credentials.filter(credential => {
+      if (!credential.Groups || !Array.isArray(credential.Groups)) {
+        return false;
+      }
+      
+      return credential.Groups.some(g => String(g.id) === groupIdStr);
+    });
     
+    console.log(`Filtered to ${filtered.length} credentials`);
     setFilteredCredentials(filtered);
+    
+    // Update URL with groupId parameter
+    const currentParams = Object.fromEntries(searchParams.entries());
+    delete currentParams.groupId;
+    delete currentParams.GroudId;
+    delete currentParams.GroupId;
+    currentParams.groupId = groupIdStr;
+    setSearchParams(currentParams);
   };
   
   // Group dialog handlers
@@ -261,32 +372,65 @@ const Dashboard = () => {
   };
   
   // Credential dialog handlers
-  const handleOpenCredentialDialog = (credential = null) => {
-    if (credential) {
-      setCredentialForm({
-        id: credential.id,
-        websiteName: credential.websiteName,
-        url: credential.url || '',
-        email: credential.email || '',
-        userId: credential.userId || '',
-        password: credential.password || '',
-        token: credential.token || '',
-        description: credential.description || '',
-        groups: credential.Groups ? credential.Groups.map(g => g.id) : []
-      });
-    } else {
-      setCredentialForm({
-        websiteName: '',
-        url: '',
-        email: '',
-        userId: '',
-        password: '',
-        token: '',
-        description: '',
-        groups: []
-      });
+  const handleOpenCredentialDialog = async (credential = null, action = null) => {
+    try {
+      if (credential) {
+        // Check if PIN is enabled in user settings
+        if (!isPinEnabled) {
+          console.log('PIN verification is disabled in settings, proceeding directly with credential edit');
+          // PIN is disabled, fetch credential data directly
+          try {
+            const response = await axios.get(`/credentials/${credential.id}?decrypted=true&action=edit`);
+            if (response.data && response.data.status === 'success' && response.data.data && response.data.data.credential) {
+              const fetchedCredential = response.data.data.credential;
+              // Set form data with fetched credential
+              setCredentialForm({
+                websiteName: fetchedCredential.websiteName || '',
+                url: fetchedCredential.url || '',
+                email: fetchedCredential.email || '',
+                userId: fetchedCredential.userId || '',
+                password: '', // Leave password blank when editing
+                token: '', // Leave token blank when editing
+                description: fetchedCredential.description || '',
+                groups: fetchedCredential.Groups ? fetchedCredential.Groups.map(g => String(g.id)) : []
+              });
+              setOpenCredentialDialog(true);
+            }
+          } catch (error) {
+            console.error('Error fetching credential for editing:', error);
+            toast.error('Failed to fetch credential details for editing');
+          }
+        } else {
+          // PIN is enabled, require verification
+          // Only set pending action if it's a direct user action, not from PIN verification success handler
+          if (pendingAction !== 'editCredential') {
+            setPendingCredentialId(credential.id);
+            setPendingAction(action);
+            setPinVerificationOpen(true);
+          } else {
+            // This is being called from the PIN verification success handler
+            // Just open the dialog with the credential data that was already fetched
+            setOpenCredentialDialog(true);
+          }
+        }
+      } else {
+        // For new credentials, initialize all fields as empty
+        setCredentialForm({
+          websiteName: '',
+          url: '',
+          email: '',
+          userId: '',
+          password: '',
+          token: '',
+          description: '',
+          groups: []
+        });
+        setOpenCredentialDialog(true);
+      }
+    } catch (error) {
+      console.error('Error opening credential dialog:', error);
+      toast.error('An error occurred while preparing the credential form.');
     }
-    setOpenCredentialDialog(true);
   };
 
   const handleCloseCredentialDialog = () => {
@@ -304,8 +448,10 @@ const Dashboard = () => {
   };
   
   // Delete dialog handlers
-  const handleOpenDeleteDialog = (id, type) => {
+  const handleOpenDeleteDialog = (id, type, action) => {
     setDeleteItem({ id, type });
+    // Always use 'delete' as the action parameter to match server expectations
+    setPendingAction('delete');
     setOpenDeleteDialog(true);
   };
   
@@ -414,117 +560,67 @@ const Dashboard = () => {
   const handleCredentialSubmit = async () => {
     try {
       const isEditing = !!credentialForm.id;
+      
+      // Prepare the URL and method based on whether we're creating or updating
       const url = isEditing ? `/credentials/${credentialForm.id}` : '/credentials';
-      const method = isEditing ? 'put' : 'post';
+      const method = isEditing ? 'patch' : 'post';
       
       // Format the data for the API
       const formData = { ...credentialForm };
+      
+      // Handle password field appropriately
+      if (isEditing) {
+        // When editing, only include password and token if they're not empty
+        if (!formData.password || formData.password.trim() === '') {
+          delete formData.password;
+        }
+        if (!formData.token || formData.token.trim() === '') {
+          delete formData.token;
+        }
+      } else {
+        // For new credentials, password is optional now
+        if (!formData.password) {
+          formData.password = ''; // Set to empty string if not provided
+        }
+      }
+      
       // Format groups properly for the API
       if (formData.groups && formData.groups.length > 0) {
         formData.groupIds = formData.groups;
       }
       delete formData.groups;
       
+      // Make the request to create or update the credential
       const response = await axios[method](url, formData);
       
-      // Consider the operation successful if we get a valid response with data
-      // or if the response has a success flag set to true
-      const isSuccess = response.data && (response.data.success || response.data.data);
-      
-      if (isSuccess) {
+      // Handle the response
+      if (response.data && (response.data.success || response.data.data)) {
         toast.success(isEditing ? 'Credential updated successfully!' : 'Credential created successfully!');
+        handleCloseCredentialDialog();
         
+        // Refresh data after creating/updating
         try {
-          // Refresh data after creating/updating
-          // Add decrypted=true parameter to get decrypted passwords
           const refreshResponse = await axios.get('/credentials?decrypted=true');
           
           if (refreshResponse.data && refreshResponse.data.data && refreshResponse.data.data.credentials) {
             setCredentials(refreshResponse.data.data.credentials);
             setFilteredCredentials(refreshResponse.data.data.credentials);
-          } else if (refreshResponse.data && refreshResponse.data.credentials) {
-            setCredentials(refreshResponse.data.credentials);
-            setFilteredCredentials(refreshResponse.data.credentials);
+            
+            // If a group filter is active, apply it
+            if (selectedGroupId) {
+              filterCredentialsByGroup(selectedGroupId);
+            }
           }
         } catch (refreshError) {
-          console.error('Error refreshing credentials after update:', refreshError);
-          // Even if refresh fails, we consider the operation successful
-          // We'll just close the dialog and let the user refresh manually if needed
+          console.error('Error refreshing credentials:', refreshError);
         }
-        
-        handleCloseCredentialDialog();
       } else {
-        toast.error(response.data.message || 'Failed to save credential. Please try again.');
+        toast.error(response.data?.message || 'Failed to save credential. Please try again.');
       }
+      
     } catch (error) {
       console.error('Error saving credential:', error);
       toast.error(error.response?.data?.message || 'Failed to save credential. Please try again.');
-    }
-  };
-  
-  const handleDelete = async () => {
-    try {
-      const { id, type } = deleteItem;
-      
-      // Only allow credential deletion or group deletion by admin
-      if (type === 'group' && currentUser?.role !== 'admin') {
-        toast.error('Only administrators can delete groups.');
-        handleCloseDeleteDialog();
-        return;
-      }
-      
-      const url = type === 'group' ? `/groups/${id}` : `/credentials/${id}`;
-      const response = await axios.delete(url);
-      
-      if (response.data.success) {
-        toast.success(`${type === 'group' ? 'Group' : 'Credential'} deleted successfully!`);
-        
-        // Update local state
-        if (type === 'group') {
-          // Refresh groups after deletion
-          try {
-            const refreshResponse = await axios.get('/groups');
-            if (refreshResponse.data.data && refreshResponse.data.data.groups) {
-              setGroups(refreshResponse.data.data.groups);
-              // Filter groups created/owned by the current user only
-              const userOwnedGroups = refreshResponse.data.data.groups.filter(group => 
-                group.UserId === currentUser?.id || group.ownerId === currentUser?.id
-              );
-              setMyGroups(userOwnedGroups);
-            } else if (refreshResponse.data && refreshResponse.data.groups) {
-              setGroups(refreshResponse.data.groups);
-              // Filter groups created/owned by the current user only
-              const userOwnedGroups = refreshResponse.data.groups.filter(group => 
-                group.UserId === currentUser?.id || group.ownerId === currentUser?.id
-              );
-              setMyGroups(userOwnedGroups);
-            }
-          } catch (refreshError) {
-            console.error('Error refreshing groups after deletion:', refreshError);
-            // Fallback to filtering locally
-            setGroups(prev => prev.filter(g => g.id !== id));
-            setMyGroups(prev => prev.filter(g => g.id !== id));
-          }
-        } else {
-          // Update credentials
-          const updatedCredentials = credentials.filter(c => c.id !== id);
-          setCredentials(updatedCredentials);
-          
-          // If a group filter is active, apply it
-          if (selectedGroup) {
-            filterCredentialsByGroup(selectedGroup.id);
-          } else {
-            setFilteredCredentials(updatedCredentials);
-          }
-        }
-        
-        handleCloseDeleteDialog();
-      } else {
-        toast.error(response.data.message || 'Failed to delete. Please try again.');
-      }
-    } catch (error) {
-      console.error('Error deleting item:', error);
-      toast.error(error.response?.data?.message || 'Failed to delete. Please try again.');
     }
   };
   
@@ -572,24 +668,365 @@ const Dashboard = () => {
   };
   
   // Toggle password visibility
-  const [showPassword, setShowPassword] = useState({});
+  const [showPassword, setShowPassword] = useState({
+    form: false,
+    viewing: false,
+    viewingToken: false
+  });
   
-  const togglePasswordVisibility = (id) => {
-    setShowPassword(prev => ({
-      ...prev,
-      [id]: !prev[id]
-    }));
+  // Fetch a specific credential (with PIN verification if needed)
+  const fetchCredential = async (id) => {
+    try {
+      const response = await axios.get(`/credentials/${id}`);
+      
+      // Update credential in state
+      setCredentials(prevCredentials => 
+        prevCredentials.map(cred => 
+          cred.id === id ? response.data.data.credential : cred
+        )
+      );
+      
+      return response.data.data.credential;
+    } catch (error) {
+      console.error('Error fetching credential:', error);
+      
+      // Check if PIN verification is required
+      if (error.response?.status === 403 && error.response?.data?.data?.requirePin) {
+        setPendingCredentialId(id);
+        setPinVerificationOpen(true);
+        return null;
+      }
+      
+      toast.error('Failed to fetch credential details');
+      return null;
+    }
   };
   
-  // View credential dialog handlers
-  const handleOpenViewCredentialDialog = (credential) => {
-    setViewingCredential(credential);
-    // Show password by default in view dialog
-    setShowPassword(prev => ({
-      ...prev,
-      [credential.id]: true
-    }));
-    setOpenViewCredentialDialog(true);
+  // Handle PIN verification success for viewing credential
+  const handlePinVerificationSuccess = async () => {
+    // Don't immediately close the PIN dialog until we've successfully completed the action
+    // This prevents the dialog from flashing if there's an error
+    
+    // Fetch the credential that was pending PIN verification
+    if (pendingCredentialId && pendingAction) {
+      try {
+        console.log(`PIN verification successful for action: ${pendingAction}, credential: ${pendingCredentialId}`);
+        
+        // Handle different actions based on pendingAction
+        switch (pendingAction) {
+            
+          case 'viewCredential':
+            // Fetch and view credential details
+            try {
+              const viewResponse = await axios.get(`/credentials/${pendingCredentialId}?decrypted=true&action=view`);
+              
+              if (viewResponse.data && viewResponse.data.status === 'success' && viewResponse.data.data && viewResponse.data.data.credential) {
+                const credential = viewResponse.data.data.credential;
+                
+                // Update credential in state
+                setCredentials(prevCredentials => 
+                  prevCredentials.map(cred => 
+                    cred.id === pendingCredentialId ? credential : cred
+                  )
+                );
+                
+                // Close PIN dialog and open the credential view dialog
+                setPinVerificationOpen(false);
+                setViewingCredential(credential);
+                setOpenViewCredentialDialog(true);
+                
+                // Reset pending states after successful action
+                resetPinVerification();
+              } else {
+                toast.error('Invalid credential data received');
+                setPinVerificationOpen(false);
+                resetPinVerification();
+              }
+            } catch (error) {
+              console.error('Error fetching credential after PIN verification:', error);
+              toast.error(error.response?.data?.message || 'Failed to fetch credential details');
+              setPinVerificationOpen(false);
+              resetPinVerification();
+            }
+            break;
+            
+          case 'editCredential':
+            // Fetch credential for editing
+            try {
+              // Fix: Change the action parameter to 'read' to match the server-side middleware expectation
+              const editResponse = await axios.get(`/credentials/${pendingCredentialId}?decrypted=true&action=read`);
+              
+              if (editResponse.data && editResponse.data.status === 'success' && editResponse.data.data && editResponse.data.data.credential) {
+                const fetchedCredential = editResponse.data.data.credential;
+                
+                // Initialize form with existing values but leave password and token fields blank
+                setCredentialForm({
+                  id: fetchedCredential.id,
+                  websiteName: fetchedCredential.websiteName || '',
+                  url: fetchedCredential.url || '',
+                  email: fetchedCredential.email || '',
+                  userId: fetchedCredential.userId || '',
+                  password: '', // Leave password blank when editing
+                  token: '', // Leave token blank when editing
+                  description: fetchedCredential.description || '',
+                  groups: fetchedCredential.Groups ? fetchedCredential.Groups.map(g => String(g.id)) : []
+                });
+                
+                // Close PIN dialog and open the credential edit dialog
+                setPinVerificationOpen(false);
+                setOpenCredentialDialog(true);
+                
+                // Reset pending states after successful action
+                resetPinVerification();
+              } else {
+                toast.error('Invalid credential data received');
+                setPinVerificationOpen(false);
+                resetPinVerification();
+              }
+            } catch (error) {
+              console.error('Error fetching credential for editing after PIN verification:', error);
+              toast.error(error.response?.data?.message || 'Failed to fetch credential details for editing');
+              setPinVerificationOpen(false);
+              resetPinVerification();
+            }
+            break;
+            
+          case 'viewVersionHistory':
+            // Fetch version history
+            try {
+              // Fix: Change the action parameter to 'read' to match the server-side middleware expectation
+              const historyResponse = await axios.get(`/credentials/${pendingCredentialId}/versions?decrypted=true&action=read`);
+              
+              if (historyResponse.data && historyResponse.data.status === 'success' && historyResponse.data.data && historyResponse.data.data.versions) {
+                // Close PIN dialog and open the version history dialog
+                setPinVerificationOpen(false);
+                setVersionHistoryCredentialId(pendingCredentialId);
+                setVersionHistory(historyResponse.data.data.versions);
+                setOpenVersionHistoryDialog(true);
+                
+                // Reset pending states after successful action
+                resetPinVerification();
+              } else {
+                toast.error('Invalid version history data received');
+                setPinVerificationOpen(false);
+                resetPinVerification();
+              }
+            } catch (error) {
+              console.error('Error fetching version history after PIN verification:', error);
+              toast.error(error.response?.data?.message || 'Failed to fetch version history');
+              setPinVerificationOpen(false);
+              resetPinVerification();
+            }
+            break;
+            
+          case 'delete':
+            // After PIN verification, determine if we're deleting a credential or a group
+            try {
+              // Check if we have a pending delete item to determine what we're deleting
+              const itemType = pendingDeleteItem.type;
+              console.log('Deleting item type:', itemType, 'with ID:', pendingCredentialId);
+              
+              if (itemType === 'credential') {
+                try {
+                  // Delete credential
+                  setPinVerificationOpen(false); // Close dialog immediately for better UX
+                  
+                  // Show processing message
+                  toast.info('Processing deletion...');
+                  
+                  // IMMEDIATELY hide the credential in the DOM before server request
+                  // This ensures the user sees the item disappear right away
+                  const credentialElements = document.querySelectorAll(`[data-credential-id="${pendingCredentialId}"]`);
+                  credentialElements.forEach(el => {
+                    if (el && el.style) {
+                      el.style.display = 'none';
+                    }
+                  });
+                  
+                  // Show success message immediately
+                  toast.success('Credential deleted successfully!');
+                  
+                  // Now perform the actual server deletion
+                  try {
+                    await axios.delete(`/credentials/${pendingCredentialId}?action=delete`);
+                    // No need to do anything on success, item is already hidden
+                  } catch (error) {
+                    console.error('Error deleting credential:', error);
+                    toast.error('Server error during deletion. Please refresh the page.');
+                  }
+                  
+                  // Reset PIN verification state
+                  resetPinVerification();
+                } catch (error) {
+                  console.error('Error deleting credential:', error);
+                  toast.error('An unexpected error occurred.');
+                  resetPinVerification();
+                }
+              } else if (itemType === 'group') {
+                try {
+                  // Delete group
+                  setPinVerificationOpen(false); // Close dialog immediately for better UX
+                  
+                  // Show processing message
+                  toast.info('Processing deletion...');
+                  
+                  // IMMEDIATELY hide the group in the DOM before server request
+                  // This ensures the user sees the item disappear right away
+                  const groupElements = document.querySelectorAll(`[data-group-id="${pendingCredentialId}"]`);
+                  groupElements.forEach(el => {
+                    if (el && el.style) {
+                      el.style.display = 'none';
+                    }
+                  });
+                  
+                  // Show success message immediately
+                  toast.success('Group deleted successfully!');
+                  
+                  // Now perform the actual server deletion
+                  try {
+                    await axios.delete(`/groups/${pendingCredentialId}?action=delete`);
+                    // No need to do anything on success, item is already hidden
+                  } catch (error) {
+                    console.error('Error deleting group:', error);
+                    toast.error('Server error during deletion. Please refresh the page.');
+                  }
+                  
+                  // Reset PIN verification state
+                  resetPinVerification();
+                } catch (error) {
+                  console.error('Error deleting group:', error);
+                  toast.error('An unexpected error occurred.');
+                  resetPinVerification();
+                }
+              }
+            } catch (error) {
+              console.error('Error during deletion after PIN verification:', error);
+              toast.error(error.response?.data?.message || 'Failed to delete item.');
+              setPinVerificationOpen(false);
+              resetPinVerification();
+            }
+            break;
+            
+          // Other cases will go here
+            
+          default:
+            console.error('Unknown pending action:', pendingAction);
+            toast.error('An unknown action was requested');
+            setPinVerificationOpen(false);
+            resetPinVerification();
+            break;
+        }
+      } catch (error) {
+        console.error('Error after PIN verification:', error);
+        toast.error('Failed to complete the requested action');
+        setPinVerificationOpen(false);
+        resetPinVerification();
+      }
+    } else {
+      // No pending credential ID or action, just close the dialog
+      setPinVerificationOpen(false);
+    }
+  };
+  
+  // Handle opening view credential dialog
+  const handleOpenViewCredentialDialog = async (credential, action) => {
+    try {
+      if (!credential || !credential.id) {
+        toast.error('Invalid credential data');
+        return;
+      }
+
+      // Check if PIN is enabled in user settings
+      if (!isPinEnabled) {
+        console.log('PIN verification is disabled in settings, proceeding directly');
+        // PIN is disabled in settings, proceed directly without verification
+        try {
+          const response = await axios.get(`/credentials/${credential.id}?decrypted=true&action=view`);
+          
+          if (response.data && response.data.status === 'success' && response.data.data && response.data.data.credential) {
+            const fetchedCredential = response.data.data.credential;
+            
+            // Update credential in state
+            setCredentials(prevCredentials => 
+              prevCredentials.map(cred => 
+                cred.id === credential.id ? fetchedCredential : cred
+              )
+            );
+            
+            // Set viewing credential
+            setViewingCredential(fetchedCredential);
+            setShowPassword({ ...showPassword, viewing: false });
+            setOpenViewCredentialDialog(true);
+          } else {
+            toast.error('Failed to fetch credential details');
+          }
+        } catch (error) {
+          console.error('Error fetching credential:', error);
+          toast.error('Failed to fetch credential details');
+        }
+        return;
+      }
+      
+      // PIN is enabled, check if verification is required
+      try {
+        const { requirePin, sessionInfo } = await isPinVerificationRequired('viewCredential');
+        
+        if (!requirePin) {
+          // PIN verification is not required (active session exists)
+          console.log('PIN verification not required - active session exists');
+          
+          // If we have session info with expiration time, show a notification
+          if (sessionInfo && sessionInfo.sessionExpiresIn) {
+            // Only show this notification once per session
+            if (!window.sessionNotificationShown) {
+              window.sessionNotificationShown = true;
+              toast.info(`You will not be asked for your PIN again for the next ${Math.ceil(sessionInfo.sessionExpiresIn / 60)} minute(s) in this browser tab.`, {
+                autoClose: 3000,
+                position: 'bottom-right'
+              });
+            }
+          }
+          
+          // Fetch credential directly without PIN verification
+          try {
+            const response = await axios.get(`/credentials/${credential.id}?decrypted=true&action=view`);
+            
+            if (response.data && response.data.status === 'success' && response.data.data && response.data.data.credential) {
+              const fetchedCredential = response.data.data.credential;
+              
+              // Update credential in state
+              setCredentials(prevCredentials => 
+                prevCredentials.map(cred => 
+                  cred.id === credential.id ? fetchedCredential : cred
+                )
+              );
+              
+              // Set viewing credential
+              setViewingCredential(fetchedCredential);
+              setShowPassword({ ...showPassword, viewing: false });
+              setOpenViewCredentialDialog(true);
+            } else {
+              toast.error('Failed to fetch credential details');
+            }
+          } catch (error) {
+            console.error('Error fetching credential:', error);
+            toast.error('Failed to fetch credential details');
+          }
+        } else {
+          // PIN verification is required
+          console.log('PIN verification required for viewing credential');
+          setPendingCredentialId(credential.id);
+          setPendingAction(action || 'viewCredential');
+          setPinVerificationOpen(true);
+        }
+      } catch (error) {
+        console.error('Error checking PIN requirement:', error);
+        toast.error('Failed to check PIN requirement');
+      }
+    } catch (error) {
+      console.error('Error preparing to view credential:', error);
+      toast.error('An error occurred while preparing to view the credential.');
+    }
   };
 
   const handleCloseViewCredentialDialog = () => {
@@ -597,15 +1034,45 @@ const Dashboard = () => {
     setViewingCredential(null);
   };
   
+
+  
   // Version history dialog handlers
-  const handleOpenVersionHistoryDialog = (credentialId) => {
-    setSelectedCredentialId(credentialId);
-    setOpenVersionHistoryDialog(true);
+  const handleOpenVersionHistoryDialog = async (credentialId, action) => {
+    // Check if PIN is enabled in user settings
+    if (!isPinEnabled) {
+      console.log('PIN verification is disabled in settings, proceeding directly with version history');
+      // PIN verification is not required (PIN is disabled in profile settings)
+      console.log('PIN verification not required for version history - PIN is disabled');
+      
+      try {
+        // Fetch version history directly without PIN verification
+        const historyResponse = await axios.get(`/credentials/${credentialId}/versions?decrypted=true&action=read`);
+        
+        if (historyResponse.data && historyResponse.data.status === 'success' && historyResponse.data.data && historyResponse.data.data.versions) {
+          // Open the version history dialog directly
+          setVersionHistoryCredentialId(credentialId);
+          setVersionHistory(historyResponse.data.data.versions);
+          setOpenVersionHistoryDialog(true);
+        } else {
+          toast.error('Invalid version history data received');
+        }
+      } catch (error) {
+        console.error('Error fetching version history:', error);
+        toast.error(error.response?.data?.message || 'Failed to fetch version history');
+      }
+    } else {
+      // PIN verification is required
+      console.log('PIN verification required for version history');
+      setPendingCredentialId(credentialId);
+      setPendingAction(action || 'viewVersionHistory');
+      setPinVerificationOpen(true);
+    }
   };
   
   const handleCloseVersionHistoryDialog = () => {
     setOpenVersionHistoryDialog(false);
-    setSelectedCredentialId(null);
+    setVersionHistoryCredentialId(null);
+    setVersionHistory([]);
   };
   
   // Group access manager dialog handlers
@@ -620,35 +1087,7 @@ const Dashboard = () => {
   };
   
   // Handle restoring a previous version
-  const handleRestoreVersion = async (credential) => {
-    try {
-      const response = await axios.put(`/credentials/${credential.id}`, credential);
-      
-      if (response.data && (response.data.success || response.data.status === 'success')) {
-        toast.success('Credential version restored successfully!');
-        
-        // Refresh credentials
-        try {
-          const refreshResponse = await axios.get('/credentials?decrypted=true');
-          
-          if (refreshResponse.data && refreshResponse.data.data && refreshResponse.data.data.credentials) {
-            setCredentials(refreshResponse.data.data.credentials);
-            setFilteredCredentials(refreshResponse.data.data.credentials);
-          } else if (refreshResponse.data && refreshResponse.data.credentials) {
-            setCredentials(refreshResponse.data.credentials);
-            setFilteredCredentials(refreshResponse.data.credentials);
-          }
-        } catch (refreshError) {
-          console.error('Error refreshing credentials after restore:', refreshError);
-        }
-      } else {
-        toast.error(response.data.message || 'Failed to restore credential version.');
-      }
-    } catch (error) {
-      console.error('Error restoring credential version:', error);
-      toast.error(error.response?.data?.message || 'Failed to restore credential version.');
-    }
-  };
+  // handleRestoreVersion function removed as requested
   
   // Render my groups tab
   const renderMyGroupsTab = () => {
@@ -827,8 +1266,9 @@ const Dashboard = () => {
     return (
       <Grid container spacing={3}>
         {groups.map(group => (
-          <Grid item xs={12} sm={6} md={4} key={group.id}>
+          <Grid item xs={12} sm={6} md={4} key={group.id} data-group-id={group.id}>
             <Card 
+              data-group-id={group.id}
               sx={{ 
                 height: '100%', 
                 display: 'flex', 
@@ -940,7 +1380,7 @@ const Dashboard = () => {
                       <IconButton 
                         size="small" 
                         color="error"
-                        onClick={() => handleOpenDeleteDialog(group.id, 'group')}
+                        onClick={() => handleOpenDeleteDialog(group.id, 'group', 'deleteGroup')}
                       >
                         <DeleteIcon />
                       </IconButton>
@@ -997,7 +1437,7 @@ const Dashboard = () => {
           </Typography>
           <Select
             id="group-filter"
-            value={selectedGroup ? selectedGroup.id : ''}
+            value={selectedGroupId}
             onChange={(e) => filterCredentialsByGroup(e.target.value)}
             displayEmpty
             variant="standard"
@@ -1022,7 +1462,7 @@ const Dashboard = () => {
               <em>All Credentials</em>
             </MenuItem>
             {groups.map((group) => (
-              <MenuItem key={group.id} value={group.id}>
+              <MenuItem key={group.id} value={String(group.id)}>
                 {group.name}
               </MenuItem>
             ))}
@@ -1032,7 +1472,7 @@ const Dashboard = () => {
         <Button
           variant="contained"
           startIcon={<AddIcon />}
-          onClick={() => handleOpenCredentialDialog()}
+          onClick={() => handleOpenCredentialDialog(null, 'addCredential')}
           disabled={groups.length === 0}
         >
           Add New Credential
@@ -1075,8 +1515,9 @@ const Dashboard = () => {
         
         <Grid container spacing={3}>
           {filteredCredentials.map(credential => (
-            <Grid item xs={12} sm={6} md={4} key={credential.id}>
+            <Grid item xs={12} sm={6} md={4} key={credential.id} data-credential-id={credential.id}>
               <Card 
+                data-credential-id={credential.id}
                 sx={{ 
                   height: '100%', 
                   display: 'flex', 
@@ -1104,51 +1545,28 @@ const Dashboard = () => {
                     </Typography>
                   )}
                   
-                  {credential.url && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                      URL: {credential.url}
-                    </Typography>
-                  )}
-                  
                   {credential.email && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                      Email: {credential.email}
-                    </Typography>
-                  )}
-                  
-                  {credential.userId && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                      Username: {credential.userId}
-                    </Typography>
-                  )}
-                  
-                  {credential.password && (
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
-                        Password: {showPassword[credential.id] ? credential.password : '••••••••'}
+                    <Box sx={{ 
+                      mb: 1, 
+                      p: 1, 
+                      bgcolor: 'rgba(0, 0, 0, 0.04)', 
+                      borderRadius: 1 
+                    }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Email: {credential.email}
                       </Typography>
-                      <IconButton 
-                        size="small" 
-                        onClick={() => togglePasswordVisibility(credential.id)}
-                      >
-                        {showPassword[credential.id] ? <VisibilityOffIcon fontSize="small" /> : <ViewIcon fontSize="small" />}
-                      </IconButton>
-                      <IconButton 
-                        size="small" 
-                        onClick={() => copyToClipboard(credential.password)}
-                      >
-                        <CopyIcon fontSize="small" />
-                      </IconButton>
                     </Box>
                   )}
                   
-                  {credential.token && (
-                    <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-                        Token/API Key
-                      </Typography>
-                      <Typography variant="body1" sx={{ wordBreak: 'break-all' }}>
-                        {credential.token}
+                  {credential.userId && (
+                    <Box sx={{ 
+                      mb: 1, 
+                      p: 1, 
+                      bgcolor: 'rgba(0, 0, 0, 0.04)', 
+                      borderRadius: 1 
+                    }}>
+                      <Typography variant="body2" color="text.secondary">
+                        Username: {credential.userId}
                       </Typography>
                     </Box>
                   )}
@@ -1164,9 +1582,10 @@ const Dashboard = () => {
                       <IconButton 
                         size="small" 
                         color="info"
-                        onClick={() => handleOpenViewCredentialDialog(credential)}
+                        onClick={() => handleOpenViewCredentialDialog(credential, 'viewCredential')}
+                        aria-label="View credential details"
                       >
-                        <ViewIcon />
+                        <VisibilityIcon />
                       </IconButton>
                     </Tooltip>
                     {/* Version History button - only visible to credential owner and group owners */}
@@ -1177,7 +1596,8 @@ const Dashboard = () => {
                         <IconButton 
                           size="small" 
                           color="secondary"
-                          onClick={() => handleOpenVersionHistoryDialog(credential.id)}
+                          onClick={() => handleOpenVersionHistoryDialog(credential.id, 'viewVersionHistory')}
+                          aria-label="View credential history"
                         >
                           <HistoryIcon />
                         </IconButton>
@@ -1187,7 +1607,8 @@ const Dashboard = () => {
                       <IconButton 
                         size="small" 
                         color="primary"
-                        onClick={() => handleOpenCredentialDialog(credential)}
+                        onClick={() => handleOpenCredentialDialog(credential, 'editCredential')}
+                        aria-label="Edit credential"
                       >
                         <EditIcon />
                       </IconButton>
@@ -1196,7 +1617,8 @@ const Dashboard = () => {
                       <IconButton 
                         size="small" 
                         color="error"
-                        onClick={() => handleOpenDeleteDialog(credential.id, 'credential')}
+                        onClick={() => handleOpenDeleteDialog(credential.id, 'credential', 'deleteCredential')}
+                        aria-label="Delete credential"
                       >
                         <DeleteIcon />
                       </IconButton>
@@ -1209,6 +1631,72 @@ const Dashboard = () => {
         </Grid>
       </Box>
     );
+  };
+  
+  // Delete handler
+  const handleDelete = async () => {
+    try {
+      const { id, type } = deleteItem;
+      
+      // Only allow credential deletion or group deletion by admin
+      if (type === 'group' && currentUser?.role !== 'admin') {
+        toast.error('Only administrators can delete groups.');
+        handleCloseDeleteDialog();
+        return;
+      }
+      
+      // Save the item being deleted for use after PIN verification
+      setPendingDeleteItem(deleteItem);
+      
+      // Check if PIN is enabled in user settings
+      if (!isPinEnabled) {
+        // PIN verification is not required (PIN is disabled in profile settings)
+        console.log('PIN verification not required for deletion - PIN is disabled');
+        
+        // IMMEDIATELY hide the item in the DOM before server request
+        // This ensures the user sees the item disappear right away
+        if (type === 'credential') {
+          const credentialElements = document.querySelectorAll(`[data-credential-id="${id}"]`);
+          credentialElements.forEach(el => {
+            if (el && el.style) {
+              el.style.display = 'none';
+            }
+          });
+        } else if (type === 'group') {
+          const groupElements = document.querySelectorAll(`[data-group-id="${id}"]`);
+          groupElements.forEach(el => {
+            if (el && el.style) {
+              el.style.display = 'none';
+            }
+          });
+        }
+        
+        // Show success message immediately
+        toast.success(`${type === 'credential' ? 'Credential' : 'Group'} deleted successfully!`);
+        
+        // Now perform the actual server deletion
+        try {
+          const endpoint = type === 'credential' ? `/credentials/${id}?action=delete` : `/groups/${id}?action=delete`;
+          await axios.delete(endpoint);
+          // No need to do anything on success, item is already hidden
+        } catch (error) {
+          console.error(`Error deleting ${type}:`, error);
+          toast.error(`Server error during deletion. Please refresh the page.`);
+        }
+      } else {
+        // PIN verification is required
+        console.log('PIN verification required for deletion');
+        setPendingCredentialId(id);
+        // Always use 'delete' as the action parameter to match server expectations
+        setPendingAction('delete');
+        setPinVerificationOpen(true);
+      }
+      
+      handleCloseDeleteDialog(); // Close the delete dialog
+    } catch (error) {
+      console.error('Error in delete handler:', error);
+      toast.error('An unexpected error occurred. Please try again.');
+    }
   };
   
   return (
@@ -1393,7 +1881,7 @@ const Dashboard = () => {
                     onClick={() => setShowPassword(prev => ({ ...prev, form: !prev.form }))}
                     edge="end"
                   >
-                    {showPassword.form ? <VisibilityOffIcon /> : <ViewIcon />}
+                    {showPassword.form ? <VisibilityOffIcon /> : <VisibilityIcon />}
                   </IconButton>
                 </InputAdornment>
               ),
@@ -1451,7 +1939,7 @@ const Dashboard = () => {
           <Button 
             onClick={handleCredentialSubmit} 
             variant="contained"
-            disabled={!credentialForm.websiteName || !credentialForm.password}
+            disabled={!credentialForm.websiteName || (credentialForm.id === '' && !credentialForm.password)}
           >
             {credentialForm.id ? 'Update' : 'Add'}
           </Button>
@@ -1570,9 +2058,16 @@ const Dashboard = () => {
                     Password
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Typography variant="body1" sx={{ mr: 1, wordBreak: 'break-all' }}>
-                      {viewingCredential.password}
+                    <Typography variant="body1" sx={{ mr: 1, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                      {showPassword.viewing ? viewingCredential.password : '••••••••'}
                     </Typography>
+                    <IconButton
+                      size="small"
+                      onClick={() => setShowPassword(prev => ({ ...prev, viewing: !prev.viewing }))}
+                      color="primary"
+                    >
+                      {showPassword.viewing ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
                     <IconButton 
                       size="small" 
                       onClick={() => copyToClipboard(viewingCredential.password)}
@@ -1590,9 +2085,16 @@ const Dashboard = () => {
                     Token/API Key
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Typography variant="body1" sx={{ mr: 1, wordBreak: 'break-all' }}>
-                      {viewingCredential.token}
+                    <Typography variant="body1" sx={{ mr: 1, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                      {showPassword.viewingToken ? viewingCredential.token : '••••••••'}
                     </Typography>
+                    <IconButton
+                      size="small"
+                      onClick={() => setShowPassword(prev => ({ ...prev, viewingToken: !prev.viewingToken }))}
+                      color="primary"
+                    >
+                      {showPassword.viewingToken ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
                     <IconButton 
                       size="small" 
                       onClick={() => copyToClipboard(viewingCredential.token)}
@@ -1642,8 +2144,8 @@ const Dashboard = () => {
       <CredentialVersionHistory
         open={openVersionHistoryDialog}
         handleClose={handleCloseVersionHistoryDialog}
-        credentialId={selectedCredentialId}
-        onRestore={handleRestoreVersion}
+        credentialId={versionHistoryCredentialId}
+        versions={versionHistory}
       />
       
       {/* Group Access Manager Dialog */}
@@ -1678,6 +2180,19 @@ const Dashboard = () => {
           };
           fetchGroups();
         }}
+      />
+      
+      {/* PIN Verification Dialog */}
+      <PinVerificationDialog
+        open={pinVerificationOpen}
+        onClose={() => {
+          resetPinVerification();
+        }}
+        onSuccess={handlePinVerificationSuccess}
+        credentialId={pendingCredentialId}
+        action={pendingAction}
+        attempts={pinVerificationAttempts}
+        setAttempts={setPinVerificationAttempts}
       />
     </>
   );

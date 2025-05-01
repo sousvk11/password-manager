@@ -58,6 +58,9 @@ CredentialVersion.init({
   },
   changedFields: {
     type: DataTypes.JSON
+  },
+  fieldChanges: {
+    type: DataTypes.JSON
   }
 }, {
   sequelize,

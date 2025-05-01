@@ -35,8 +35,9 @@ import {
   Person as PersonIcon
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
-import axios from 'axios';
+import axios from '../utils/axiosConfig';
 import AuthContext from '../context/AuthContext';
+import PinVerificationDialog from '../components/PinVerificationDialog';
 
 const CredentialDetail = () => {
   const { credentialId } = useParams();
@@ -63,6 +64,10 @@ const CredentialDetail = () => {
     groupId: ''
   });
   const [groups, setGroups] = useState([]);
+  
+  // PIN verification state
+  const [pinVerificationOpen, setPinVerificationOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
   
   // Fetch credential data
   useEffect(() => {
@@ -108,9 +113,19 @@ const CredentialDetail = () => {
       if (response.data.data.credential.token) {
         setDecryptedToken(response.data.data.credential.token);
       }
+      return true;
     } catch (error) {
       console.error('Error fetching decrypted password:', error);
+      
+      // Check if PIN verification is required
+      if (error.response?.status === 403 && error.response?.data?.data?.requirePin) {
+        setPinVerificationOpen(true);
+        setPendingAction('fetchPassword');
+        return false;
+      }
+      
       toast.error('Failed to decrypt password. Please try again.');
+      return false;
     }
   };
   
@@ -178,7 +193,8 @@ const CredentialDetail = () => {
   // Toggle password visibility
   const togglePasswordVisibility = async () => {
     if (!showPassword && !decryptedPassword) {
-      await fetchDecryptedPassword();
+      const success = await fetchDecryptedPassword();
+      if (!success) return; // Don't toggle if fetch failed or PIN verification is needed
     }
     setShowPassword(!showPassword);
   };
@@ -186,9 +202,24 @@ const CredentialDetail = () => {
   // Toggle token visibility
   const toggleTokenVisibility = async () => {
     if (!showToken && !decryptedToken && credential.token) {
-      await fetchDecryptedPassword();
+      const success = await fetchDecryptedPassword();
+      if (!success) return; // Don't toggle if fetch failed or PIN verification is needed
     }
     setShowToken(!showToken);
+  };
+  
+  // Handle PIN verification success
+  const handlePinVerificationSuccess = async () => {
+    setPinVerificationOpen(false);
+    
+    if (pendingAction === 'fetchPassword') {
+      const success = await fetchDecryptedPassword();
+      if (success) {
+        setShowPassword(true);
+      }
+    }
+    
+    setPendingAction(null);
   };
   
   if (loading) {
@@ -335,28 +366,9 @@ const CredentialDetail = () => {
                     Password
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-                    <Typography variant="body1" sx={{ mr: 1 }}>
-                      {showPassword ? decryptedPassword : '••••••••••••'}
+                    <Typography variant="body1">
+                      ••••••••••••
                     </Typography>
-                    <Tooltip title={showPassword ? "Hide Password" : "Show Password"}>
-                      <IconButton 
-                        size="small" 
-                        onClick={togglePasswordVisibility}
-                        color={showPassword ? "secondary" : "default"}
-                      >
-                        {showPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-                      </IconButton>
-                    </Tooltip>
-                    {showPassword && (
-                      <Tooltip title="Copy Password">
-                        <IconButton 
-                          size="small" 
-                          onClick={() => copyToClipboard(decryptedPassword)}
-                        >
-                          <CopyIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    )}
                   </Box>
                 </Grid>
                 
@@ -568,6 +580,17 @@ const CredentialDetail = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      
+      {/* PIN Verification Dialog */}
+      <PinVerificationDialog
+        open={pinVerificationOpen}
+        onClose={() => {
+          setPinVerificationOpen(false);
+          setPendingAction(null);
+        }}
+        onSuccess={handlePinVerificationSuccess}
+        credentialId={credentialId}
+      />
     </Box>
   );
 };

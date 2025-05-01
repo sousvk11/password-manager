@@ -16,19 +16,18 @@ import {
   CircularProgress,
   Box,
   Chip,
-  IconButton
+  IconButton,
+  Divider
 } from '@mui/material';
-import {
-  Close as CloseIcon,
-  Visibility as ViewIcon,
-  VisibilityOff as VisibilityOffIcon,
-  ContentCopy as CopyIcon,
-  Restore as RestoreIcon
-} from '@mui/icons-material';
+import CloseIcon from '@mui/icons-material/Close';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import CopyIcon from '@mui/icons-material/ContentCopy';
+// Restore functionality removed as requested
 import { toast } from 'react-toastify';
 import axios from '../utils/axiosConfig';
 
-const CredentialVersionHistory = ({ open, handleClose, credentialId, onRestore }) => {
+const CredentialVersionHistory = ({ open, handleClose, credentialId }) => {
   const [versions, setVersions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showPassword, setShowPassword] = useState({});
@@ -42,7 +41,8 @@ const CredentialVersionHistory = ({ open, handleClose, credentialId, onRestore }
   const fetchVersionHistory = async () => {
     setLoading(true);
     try {
-      const response = await axios.get(`/credentials/${credentialId}/versions`);
+      // Request decrypted versions
+      const response = await axios.get(`/credentials/${credentialId}/versions?decrypted=true`);
       if (response.data && response.data.data && response.data.data.versions) {
         setVersions(response.data.data.versions);
       } else {
@@ -56,14 +56,19 @@ const CredentialVersionHistory = ({ open, handleClose, credentialId, onRestore }
     }
   };
 
-  const togglePasswordVisibility = (versionId) => {
+  const togglePasswordVisibility = (id) => {
     setShowPassword(prev => ({
       ...prev,
-      [versionId]: !prev[versionId]
+      [id]: !prev[id]
     }));
   };
 
   const copyToClipboard = (text) => {
+    if (!text) {
+      toast.error('Nothing to copy');
+      return;
+    }
+    
     navigator.clipboard.writeText(text).then(() => {
       toast.success('Copied to clipboard!');
     }).catch(err => {
@@ -72,24 +77,7 @@ const CredentialVersionHistory = ({ open, handleClose, credentialId, onRestore }
     });
   };
 
-  const handleRestore = (version) => {
-    if (onRestore && typeof onRestore === 'function') {
-      // Create a credential object from the version
-      const credential = {
-        id: credentialId,
-        websiteName: version.websiteName,
-        url: version.url,
-        email: version.email,
-        userId: version.userId,
-        password: version.password,
-        token: version.token,
-        description: version.description
-      };
-      
-      onRestore(credential);
-      handleClose();
-    }
-  };
+  // handleRestore function removed as requested
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleString();
@@ -108,22 +96,143 @@ const CredentialVersionHistory = ({ open, handleClose, credentialId, onRestore }
     }
   };
 
-  const renderChangedFields = (changedFields) => {
-    if (!changedFields || !Array.isArray(changedFields) || changedFields.length === 0) {
+  const renderSensitiveField = (value, fieldId) => {
+    const isVisible = showPassword[fieldId];
+    
+    // Only show toggle and copy if there's actually a value
+    const hasValue = value && value !== '(empty)' && value !== '(decryption error)';
+    
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+          {isVisible ? (value || '(empty)') : (hasValue ? '••••••••' : '(empty)')}
+        </Typography>
+        {hasValue && (
+          <>
+            <IconButton
+              size="small"
+              onClick={() => togglePasswordVisibility(fieldId)}
+            >
+              {isVisible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+            </IconButton>
+            <IconButton
+              size="small"
+              onClick={() => copyToClipboard(value)}
+              title="Copy value"
+            >
+              <CopyIcon fontSize="small" />
+            </IconButton>
+          </>
+        )}
+      </Box>
+    );
+  };
+
+  const renderGroupIds = (groupIds) => {
+    if (!groupIds || !Array.isArray(groupIds) || groupIds.length === 0) {
+      return <Typography variant="body2">(empty)</Typography>;
+    }
+    
+    return (
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+        {groupIds.map(id => (
+          <Chip
+            key={id}
+            label={id}
+            size="small"
+            variant="outlined"
+            color="secondary"
+          />
+        ))}
+      </Box>
+    );
+  };
+
+  const renderChangedFields = (version) => {
+    if (!version.changedFields || !Array.isArray(version.changedFields) || version.changedFields.length === 0) {
       return <Typography variant="body2">No changes</Typography>;
     }
 
+    if (version.changeType === 'create') {
+      return (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {version.changedFields.map((field) => {
+            const isSensitive = field === 'password' || field === 'token';
+            const isGroupIds = field === 'groupIds';
+            const value = version[field];
+            
+            return (
+              <Box key={field} sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                <Chip
+                  label={field}
+                  size="small"
+                  variant="outlined"
+                  color="primary"
+                />
+                {isSensitive ? 
+                  renderSensitiveField(value, `${version.id}-${field}`) : 
+                  isGroupIds ?
+                  renderGroupIds(value) :
+                  <Typography variant="body2">{value || '(empty)'}</Typography>
+                }
+              </Box>
+            );
+          })}
+        </Box>
+      );
+    }
+
+    if (version.changeType === 'delete') {
+      return (
+        <Typography variant="body2" color="error">
+          This credential was deleted
+        </Typography>
+      );
+    }
+
+    // For updates, show before and after values
     return (
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-        {changedFields.map((field) => (
-          <Chip
-            key={field}
-            label={field}
-            size="small"
-            variant="outlined"
-            color="primary"
-          />
-        ))}
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        {version.changedFields.map((field) => {
+          const change = version.fieldChanges?.[field] || {};
+          const isSensitive = field === 'password' || field === 'token';
+          const isGroupIds = field === 'groupIds';
+          
+          return (
+            <Box key={field} sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              <Chip
+                label={field}
+                size="small"
+                variant="outlined"
+                color="primary"
+              />
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                {/* Old Value */}
+                <Box sx={{ flex: 1 }}>
+                  {isSensitive ? 
+                    renderSensitiveField(change.oldValue, `${version.id}-${field}-old`) : 
+                    isGroupIds ?
+                    renderGroupIds(change.oldValue) :
+                    <Typography variant="body2">{change.oldValue || '(empty)'}</Typography>
+                  }
+                </Box>
+                
+                {/* Arrow */}
+                <Typography variant="body2" sx={{ mx: 1 }}>→</Typography>
+                
+                {/* New Value */}
+                <Box sx={{ flex: 1 }}>
+                  {isSensitive ? 
+                    renderSensitiveField(change.newValue, `${version.id}-${field}-new`) : 
+                    isGroupIds ?
+                    renderGroupIds(change.newValue) :
+                    <Typography variant="body2">{change.newValue || '(empty)'}</Typography>
+                  }
+                </Box>
+              </Box>
+            </Box>
+          );
+        })}
       </Box>
     );
   };
@@ -160,81 +269,43 @@ const CredentialVersionHistory = ({ open, handleClose, credentialId, onRestore }
             No version history found for this credential.
           </Typography>
         ) : (
-          <TableContainer component={Paper} sx={{ mt: 2 }}>
-            <Table>
-              <TableHead>
-                <TableRow>
-                  <TableCell>Version</TableCell>
-                  <TableCell>Date</TableCell>
-                  <TableCell>Change Type</TableCell>
-                  <TableCell>Changed By</TableCell>
-                  <TableCell>Website Name</TableCell>
-                  <TableCell>Password</TableCell>
-                  <TableCell>Changed Fields</TableCell>
-                  <TableCell>Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {versions.map((version) => (
-                  <TableRow key={version.id} hover>
-                    <TableCell>{version.versionNumber}</TableCell>
-                    <TableCell>{formatDate(version.createdAt)}</TableCell>
-                    <TableCell>
-                      <Chip
-                        label={version.changeType}
-                        size="small"
-                        color={getChangeTypeColor(version.changeType)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {version.editor ? (
-                        <Typography variant="body2">
-                          {version.editor.name}
-                        </Typography>
-                      ) : (
-                        'Unknown'
-                      )}
-                    </TableCell>
-                    <TableCell>{version.websiteName}</TableCell>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <Typography variant="body2" sx={{ mr: 1 }}>
-                          {showPassword[version.id] ? version.password : '••••••••'}
-                        </Typography>
-                        <IconButton
-                          size="small"
-                          onClick={() => togglePasswordVisibility(version.id)}
-                        >
-                          {showPassword[version.id] ? <VisibilityOffIcon fontSize="small" /> : <ViewIcon fontSize="small" />}
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() => copyToClipboard(version.password)}
-                        >
-                          <CopyIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      {renderChangedFields(version.changedFields)}
-                    </TableCell>
-                    <TableCell>
-                      {version.changeType !== 'delete' && (
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={() => handleRestore(version)}
-                          title="Restore this version"
-                        >
-                          <RestoreIcon fontSize="small" />
-                        </IconButton>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <Box sx={{ mt: 2 }}>
+            {versions.map((version, index) => (
+              <Paper key={version.id} elevation={1} sx={{ mb: 3, p: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="h6">Version {version.versionNumber}</Typography>
+                    <Chip
+                      label={version.changeType}
+                      size="small"
+                      color={getChangeTypeColor(version.changeType)}
+                    />
+                  </Box>
+                  {/* Restore button removed as requested */}
+                </Box>
+                
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  {formatDate(version.createdAt)} by {version.editor ? version.editor.name : 'Unknown'}
+                </Typography>
+                
+                <Divider sx={{ my: 1 }} />
+                
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                    Website: {version.websiteName}
+                  </Typography>
+                  
+                  {version.changeType === 'update' && (
+                    <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                      Changed Fields:
+                    </Typography>
+                  )}
+                  
+                  {renderChangedFields(version)}
+                </Box>
+              </Paper>
+            ))}
+          </Box>
         )}
       </DialogContent>
       <DialogActions>
