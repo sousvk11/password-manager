@@ -131,6 +131,28 @@ class OTP extends Model {
    */
   static async isVerificationRequired(email, deviceId) {
     try {
+      // First, check if the user has OTP enabled in their preferences
+      const user = await sequelize.models.User.findOne({
+        where: { email }
+      });
+      
+      // If user not found, require OTP for safety
+      if (!user) {
+        console.log('User not found, requiring OTP for safety');
+        return true;
+      }
+      
+      // Convert to plain object to ensure we can access all properties
+      const userObj = user.toJSON ? user.toJSON() : user;
+      console.log('Checking OTP settings for user:', email);
+      console.log('User otpEnabled value:', userObj.otpEnabled);
+      
+      // If OTP is explicitly disabled, skip OTP verification
+      if (userObj.otpEnabled === false) {
+        console.log('User has disabled OTP verification');
+        return false;
+      }
+      
       // Get trusted devices setting
       const trustedDevices = await sequelize.models.Setting.findOne({
         where: { key: 'trusted_devices' }

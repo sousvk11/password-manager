@@ -404,6 +404,31 @@ exports.isPinVerificationRequired = (defaultAction) => async (req, res, next) =>
   }
 };
 
+// Get PIN status (enabled/disabled)
+exports.getPinStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Find user's PIN
+    const userPin = await UserPin.findOne({ where: { userId } });
+    
+    // Return PIN status
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        enabled: userPin ? userPin.enabled : false,
+        exists: !!userPin
+      }
+    });
+  } catch (err) {
+    console.error('Error getting PIN status:', err);
+    return res.status(500).json({
+      status: 'error',
+      message: 'An error occurred while getting PIN status'
+    });
+  }
+};
+
 // Check if PIN verification is required (lightweight endpoint)
 exports.checkPinRequired = async (req, res) => {
   try {

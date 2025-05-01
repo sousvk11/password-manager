@@ -17,6 +17,28 @@ class UserPin extends Model {
       return false;
     }
   }
+  
+  /**
+   * Verify a PIN against this user's stored PIN
+   * @param {string} candidatePin - PIN to verify
+   * @returns {Promise<boolean>} - True if PIN is correct
+   */
+  async verifyPin(candidatePin) {
+    try {
+      const isValid = await bcrypt.compare(candidatePin, this.pin);
+      
+      if (isValid) {
+        // Update last verified timestamp
+        this.lastVerified = new Date();
+        await this.save();
+      }
+      
+      return isValid;
+    } catch (error) {
+      console.error('PIN verification error:', error);
+      return false;
+    }
+  }
 
   /**
    * Check if PIN is expired

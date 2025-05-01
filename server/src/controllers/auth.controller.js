@@ -374,6 +374,34 @@ exports.initiateLogin = async (req, res) => {
     // Generate device ID
     const deviceId = generateDeviceId(req);
     
+    // Check if user has OTP enabled in their preferences
+    // Convert to plain object to ensure we can access all properties
+    const userObj = user.toJSON ? user.toJSON() : user;
+    console.log('User OTP settings:', userObj.otpEnabled);
+    
+    // If OTP is explicitly disabled, skip OTP verification
+    if (userObj.otpEnabled === false) {
+      console.log('User has disabled OTP verification, skipping OTP check');
+      // Update last login time and device ID
+      user.lastLogin = Date.now();
+      user.lastDeviceId = user.currentDeviceId;
+      user.currentDeviceId = deviceId;
+      await user.save();
+      
+      // Log activity
+      await Activity.create({
+        userId: user.id,
+        action: 'login',
+        resourceType: 'user',
+        resourceId: user.id,
+        details: { method: 'standard_login_no_otp' },
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+      
+      return createSendToken(user, 200, req, res);
+    }
+    
     // Check if OTP verification is required for this device
     const requireOTP = await OTP.isVerificationRequired(email, deviceId);
     

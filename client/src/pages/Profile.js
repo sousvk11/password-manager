@@ -15,6 +15,7 @@ import { toast } from 'react-toastify';
 import axios from '../utils/axiosConfig';
 import AuthContext from '../context/AuthContext';
 import PinManagement from '../components/PinManagement';
+import OtpManagement from '../components/OtpManagement';
 
 const Profile = () => {
   const { currentUser, updateProfile, updatePassword } = useContext(AuthContext);
@@ -174,6 +175,10 @@ const Profile = () => {
       <Grid container spacing={3}>
         <Grid item xs={12}>
           <PinManagement />
+        </Grid>
+        
+        <Grid item xs={12}>
+          <OtpManagement />
         </Grid>
         
         <Grid item xs={12}>

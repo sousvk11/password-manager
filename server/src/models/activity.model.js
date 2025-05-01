@@ -40,7 +40,9 @@ Activity.init({
       'revoke_credential_access',
       'create_user',
       'edit_user',
-      'delete_user'
+      'delete_user',
+      'enable_otp',
+      'disable_otp'
     ),
     allowNull: false
   },

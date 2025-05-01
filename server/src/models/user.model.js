@@ -122,6 +122,11 @@ User.init({
   lastDeviceId: {
     type: DataTypes.STRING,
     allowNull: true
+  },
+  otpEnabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+    comment: 'Whether OTP verification is required for login'
   }
 }, {
   sequelize,

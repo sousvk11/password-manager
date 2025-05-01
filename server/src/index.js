@@ -28,6 +28,10 @@ const TrustedDevice = require('./models/trustedDevice.model');
 const PendingRegistration = require('./models/pendingRegistration.model');
 const UserPin = require('./models/userPin.model');
 
+// Import migrations
+const addOtpEnabledColumn = require('./migrations/add-otp-enabled-column');
+const updateActivityEnum = require('./migrations/update-activity-enum');
+
 // Define model associations
 const setupAssociations = () => {
   // User and Group associations
@@ -102,6 +106,7 @@ const credentialRoutes = require('./routes/credential.routes');
 const activityRoutes = require('./routes/activity.routes');
 const settingRoutes = require('./routes/setting.routes');
 const pinRoutes = require('./routes/pin.routes');
+const otpSettingsRoutes = require('./routes/otpSettings.routes');
 
 // Initialize Express app
 const app = express();
@@ -140,6 +145,7 @@ app.use('/api/v1/groups', groupRoutes);
 app.use('/api/v1/activities', activityRoutes);
 app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/pins', pinRoutes);
+app.use('/api/v1/otp-settings', otpSettingsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -166,10 +172,13 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('MySQL database connection established successfully');
     
+    // Run migrations
+    await addOtpEnabledColumn();
+    await updateActivityEnum();
+    
     // Sync database models (in development only)
     if (process.env.NODE_ENV === 'development') {
-      // Use sync without alter to avoid changing existing tables
-      // This prevents "Too many keys" error
+      // Use sync without alter to avoid the 'Too many keys' error
       await sequelize.sync({ alter: false });
       console.log('Database models synchronized');
     }
