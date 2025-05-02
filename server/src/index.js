@@ -27,10 +27,13 @@ const OTP = require('./models/otp.model');
 const TrustedDevice = require('./models/trustedDevice.model');
 const PendingRegistration = require('./models/pendingRegistration.model');
 const UserPin = require('./models/userPin.model');
+const DeletedItem = require('./models/deletedItem.model');
 
 // Import migrations
 const addOtpEnabledColumn = require('./migrations/add-otp-enabled-column');
 const updateActivityEnum = require('./migrations/update-activity-enum');
+const addDeletedItemsTable = require('./migrations/add-deleted-items-table');
+const updateActivityEnumForDeletedItems = require('./migrations/update-activity-enum-for-deleted-items');
 
 // Define model associations
 const setupAssociations = () => {
@@ -93,6 +96,13 @@ const setupAssociations = () => {
   // User and CredentialAccess associations (for grantedBy)
   User.hasMany(CredentialAccess, { foreignKey: 'grantedBy', as: 'grantedAccesses' });
   CredentialAccess.belongsTo(User, { foreignKey: 'grantedBy', as: 'grantor' });
+  
+  // DeletedItem associations
+  User.hasMany(DeletedItem, { foreignKey: 'deletedBy', as: 'deletedItems' });
+  DeletedItem.belongsTo(User, { foreignKey: 'deletedBy', as: 'deletedByUser' });
+  
+  User.hasMany(DeletedItem, { foreignKey: 'ownerId', as: 'originalItems' });
+  DeletedItem.belongsTo(User, { foreignKey: 'ownerId', as: 'originalOwner' });
 };
 
 // Set up associations
@@ -107,6 +117,7 @@ const activityRoutes = require('./routes/activity.routes');
 const settingRoutes = require('./routes/setting.routes');
 const pinRoutes = require('./routes/pin.routes');
 const otpSettingsRoutes = require('./routes/otpSettings.routes');
+const deletedItemRoutes = require('./routes/deletedItem.routes');
 
 // Initialize Express app
 const app = express();
@@ -132,6 +143,9 @@ app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 // CORS
 app.use(cors());
 
+// Serve static files from the public directory
+app.use(express.static(path.join(__dirname, '../public')));
+
 // Development logging
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
@@ -140,12 +154,13 @@ if (process.env.NODE_ENV === 'development') {
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);
-app.use('/api/v1/credentials', credentialRoutes);
 app.use('/api/v1/groups', groupRoutes);
+app.use('/api/v1/credentials', credentialRoutes);
 app.use('/api/v1/activities', activityRoutes);
 app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/pins', pinRoutes);
 app.use('/api/v1/otp-settings', otpSettingsRoutes);
+app.use('/api/v1/deleted-items', deletedItemRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -175,6 +190,8 @@ const startServer = async () => {
     // Run migrations
     await addOtpEnabledColumn();
     await updateActivityEnum();
+    await addDeletedItemsTable();
+    await updateActivityEnumForDeletedItems();
     
     // Sync database models (in development only)
     if (process.env.NODE_ENV === 'development') {

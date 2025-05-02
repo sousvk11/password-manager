@@ -3,6 +3,7 @@ const User = require('../models/user.model');
 const GroupMember = require('../models/groupMember.model');
 const Activity = require('../models/activity.model');
 const Credential = require('../models/credential.model');
+const DeletedItem = require('../models/deletedItem.model');
 
 // Create a new group
 exports.createGroup = async (req, res) => {
@@ -280,7 +281,22 @@ exports.deleteGroup = async (req, res) => {
       console.log('Admin user - bypassing ownership checks for group deletion');
     }
 
-    // Delete the group
+    // Instead of deleting, move to deleted items table
+    const groupJson = group.toJSON();
+    
+    // Store the group in the deleted items table
+    await DeletedItem.create({
+      originalId: group.id,
+      itemType: 'group',
+      name: group.name,
+      content: JSON.stringify(groupJson),
+      deletedBy: req.user.id,
+      ownerId: group.ownerId,
+      deletedAt: new Date(),
+      isRestored: false
+    });
+    
+    // Now delete the group from the main table
     await group.destroy();
 
     // Log activity

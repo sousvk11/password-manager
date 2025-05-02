@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -42,10 +43,17 @@ import { toast } from 'react-toastify';
 import axios from 'axios';
 import SMTPSettings from '../components/SMTPSettings';
 import DomainSettings from '../components/DomainSettings';
+import DeletedItems from '../components/DeletedItems';
 
 const AdminPanel = () => {
-  // Tab state
-  const [tabValue, setTabValue] = useState(0);
+  const location = useLocation();
+  
+  // Tab state - check URL query param for initial tab
+  const [tabValue, setTabValue] = useState(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get('tab');
+    return tabParam ? parseInt(tabParam, 10) : 0;
+  });
   
   // Users state
   const [users, setUsers] = useState([]);
@@ -364,6 +372,7 @@ const AdminPanel = () => {
           <Tabs value={tabValue} onChange={handleTabChange} aria-label="admin tabs">
             <Tab label="User Management" id="tab-0" aria-controls="tabpanel-0" />
             <Tab label="System Settings" id="tab-1" aria-controls="tabpanel-1" />
+            <Tab label="Deleted Items" id="tab-2" aria-controls="tabpanel-2" />
           </Tabs>
         </Box>
         
@@ -484,10 +493,14 @@ const AdminPanel = () => {
               {/* SMTP Settings */}
               <SMTPSettings />
               
-              {/* Domain Restriction Settings */}
+              {/* Domain Settings */}
               <DomainSettings />
             </>
           )}
+        </Box>
+        
+        <Box role="tabpanel" hidden={tabValue !== 2} id="tabpanel-2" aria-labelledby="tab-2" sx={{ py: 3 }}>
+          {tabValue === 2 && <DeletedItems />}
         </Box>
       </Box>
       

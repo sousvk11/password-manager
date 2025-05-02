@@ -42,7 +42,12 @@ Activity.init({
       'edit_user',
       'delete_user',
       'enable_otp',
-      'disable_otp'
+      'disable_otp',
+      'restore_credential',
+      'restore_group',
+      'permanent_delete_credential',
+      'permanent_delete_group',
+      'view_deleted_items'
     ),
     allowNull: false
   },

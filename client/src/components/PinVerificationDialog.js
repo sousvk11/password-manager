@@ -120,6 +120,10 @@ const PinVerificationDialog = ({ open, onClose, onSuccess, credentialId, action 
         return 'delete this credential';
       case 'deleteGroup':
         return 'delete this group';
+      case 'restoreItem':
+        return 'restore this item';
+      case 'deleteItem':
+        return 'permanently delete this item';
       default:
         return 'access this credential';
     }
@@ -130,8 +134,10 @@ const PinVerificationDialog = ({ open, onClose, onSuccess, credentialId, action 
     switch (action) {
       case 'deleteCredential':
       case 'deleteGroup':
+      case 'deleteItem':
         return 'error';
       case 'editCredential':
+      case 'restoreItem':
         return 'primary';
       case 'viewVersionHistory':
         return 'secondary';

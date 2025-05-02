@@ -8,9 +8,10 @@ const GroupMember = require('../models/groupMember.model');
 const CredentialShare = require('../models/credentialShare.model');
 const CredentialGroup = require('../models/credentialGroup.model');
 const CredentialAccess = require('../models/credentialAccess.model');
-const crypto = require('crypto');
+const DeletedItem = require('../models/deletedItem.model');
+const crypto = require('crypto-js');
 
-// Helper function to decrypt a field
+// Helper function to decrypt a field using crypto-js (same as in Credential model)
 const decryptField = async (encryptedValue) => {
   try {
     if (!encryptedValue) return '';
@@ -20,27 +21,9 @@ const decryptField = async (encryptedValue) => {
       throw new Error('Encryption key not found');
     }
     
-    // Extract the initialization vector and encrypted data
-    const parts = encryptedValue.split(':');
-    if (parts.length !== 2) {
-      throw new Error('Invalid encrypted format');
-    }
-    
-    const iv = Buffer.from(parts[0], 'hex');
-    const encryptedData = Buffer.from(parts[1], 'hex');
-    
-    // Create a decipher using AES-256-CBC
-    const decipher = crypto.createDecipheriv(
-      'aes-256-cbc',
-      Buffer.from(encryptionKey),
-      iv
-    );
-    
-    // Decrypt the data
-    let decrypted = decipher.update(encryptedData);
-    decrypted = Buffer.concat([decrypted, decipher.final()]);
-    
-    return decrypted.toString();
+    // Use crypto-js AES decryption (same as in Credential model)
+    const bytes = crypto.AES.decrypt(encryptedValue, encryptionKey);
+    return bytes.toString(crypto.enc.Utf8);
   } catch (error) {
     console.error('Error decrypting field:', error);
     return '[Decryption Error]';
@@ -945,7 +928,22 @@ exports.deleteCredential = async (req, res) => {
       userAgent: req.headers['user-agent']
     });
     
-    // Delete the credential
+    // Instead of deleting, move to deleted items table
+    const credentialJson = credential.toJSON();
+    
+    // Store the credential in the deleted items table
+    await DeletedItem.create({
+      originalId: credential.id,
+      itemType: 'credential',
+      name: credential.websiteName,
+      content: JSON.stringify(credentialJson),
+      deletedBy: req.user.id,
+      ownerId: credential.ownerId,
+      deletedAt: new Date(),
+      isRestored: false
+    });
+    
+    // Now delete the credential from the main table
     await credential.destroy();
 
     // Return a success response with status 200 instead of 204
@@ -1219,28 +1217,23 @@ exports.getCredentialVersionHistory = async (req, res) => {
       // Decrypt passwords for all versions
       for (const version of versions) {
         try {
-          // Create a temporary credential object for decryption
-          const tempCredential = Object.create(CredentialModel.prototype);
-          
-          // Decrypt main password field
+          // Decrypt main password field using the decryptField function
           if (version.password) {
-            tempCredential.password = version.password;
             try {
-              version.password = tempCredential.decryptPassword(encryptionKey);
+              version.password = await decryptField(version.password);
             } catch (error) {
               console.error('Error decrypting version password:', error);
-              version.password = '(decryption error)';
+              version.password = '[Decryption Error]';
             }
           }
           
-          // Decrypt main token field
+          // Decrypt main token field using the decryptField function
           if (version.token) {
-            tempCredential.token = version.token;
             try {
-              version.token = tempCredential.decryptToken(encryptionKey);
+              version.token = await decryptField(version.token);
             } catch (error) {
               console.error('Error decrypting version token:', error);
-              version.token = '(decryption error)';
+              version.token = '[Decryption Error]';
             }
           }
           
@@ -1252,30 +1245,24 @@ exports.getCredentialVersionHistory = async (req, res) => {
                 const changes = version.fieldChanges[field];
                 
                 // The oldValue might already be decrypted or might be encrypted
-                if (changes.oldValue && typeof changes.oldValue === 'string' && changes.oldValue.startsWith('U2')) {
-                  // This is an encrypted value, decrypt it
-                  tempCredential[field] = changes.oldValue;
+                if (changes.oldValue && typeof changes.oldValue === 'string') {
                   try {
-                    changes.oldValue = field === 'password' 
-                      ? tempCredential.decryptPassword(encryptionKey)
-                      : tempCredential.decryptToken(encryptionKey);
+                    // Use the same decryptField function for consistency
+                    changes.oldValue = await decryptField(changes.oldValue);
                   } catch (error) {
                     console.error(`Error decrypting old ${field}:`, error);
-                    changes.oldValue = '(decryption error)';
+                    changes.oldValue = '[Decryption Error]';
                   }
                 }
                 
                 // The newValue might already be decrypted or might be encrypted
-                if (changes.newValue && typeof changes.newValue === 'string' && changes.newValue.startsWith('U2')) {
-                  // This is an encrypted value, decrypt it
-                  tempCredential[field] = changes.newValue;
+                if (changes.newValue && typeof changes.newValue === 'string') {
                   try {
-                    changes.newValue = field === 'password'
-                      ? tempCredential.decryptPassword(encryptionKey)
-                      : tempCredential.decryptToken(encryptionKey);
+                    // Use the same decryptField function for consistency
+                    changes.newValue = await decryptField(changes.newValue);
                   } catch (error) {
                     console.error(`Error decrypting new ${field}:`, error);
-                    changes.newValue = '(decryption error)';
+                    changes.newValue = '[Decryption Error]';
                   }
                 }
               }

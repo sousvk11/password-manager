@@ -26,7 +26,8 @@ import {
   Assessment as ActivityIcon,
   Person as PersonIcon,
   Logout as LogoutIcon,
-  ChevronLeft as ChevronLeftIcon
+  ChevronLeft as ChevronLeftIcon,
+  DeleteOutline as DeletedItemsIcon
 } from '@mui/icons-material';
 import AuthContext from '../context/AuthContext';
 
@@ -240,6 +241,21 @@ const Layout = () => {
                   <AdminIcon color="secondary" />
                 </ListItemIcon>
                 <ListItemText primary="Admin Panel" />
+              </ListItem>
+              
+              <ListItem 
+                button 
+                onClick={() => handleNavigate('/admin?tab=2')}
+                sx={{ 
+                  mt: 1,
+                  borderRadius: '0 20px 20px 0',
+                  '&:hover': { bgcolor: 'rgba(245, 0, 87, 0.1)' },
+                }}
+              >
+                <ListItemIcon>
+                  <DeletedItemsIcon color="secondary" />
+                </ListItemIcon>
+                <ListItemText primary="Deleted Items" />
               </ListItem>
             </List>
           )}
