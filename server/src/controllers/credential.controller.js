@@ -2,6 +2,7 @@ const Credential = require('../models/credential.model');
 const Group = require('../models/group.model');
 const User = require('../models/user.model');
 const Activity = require('../models/activity.model');
+const activityController = require('./activity.controller');
 const CredentialVersion = require('../models/credentialVersion.model');
 const { Op } = require('sequelize');
 const GroupMember = require('../models/groupMember.model');
@@ -274,19 +275,17 @@ exports.createCredential = async (req, res) => {
     
     await CredentialGroup.bulkCreate(credentialGroups);
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'create_credential',
-      resourceType: 'credential',
-      resourceId: newCredential.id,
-      details: { 
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      req,
+      'create_credential',
+      'credential',
+      newCredential.id,
+      { 
         websiteName: newCredential.websiteName,
         groupIds: groupIds
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+      }
+    );
 
     // Fetch the credential with its groups to return in the response
     const credentialWithGroups = await Credential.findByPk(newCredential.id, {
@@ -364,16 +363,14 @@ exports.getAllCredentials = async (req, res) => {
           });
         }
 
-        // Log activity
-        await Activity.create({
-          userId: req.user.id,
-          action: 'view_all_credentials',
-          resourceType: 'credential',
-          resourceId: req.user.id,
-          details: { count: allCredentials.length, asAdmin: true },
-          ipAddress: req.ip,
-          userAgent: req.headers['user-agent']
-        });
+        // Log activity - will only be stored for admin users
+        await activityController.createActivityLog(
+          req,
+          'view_all_credentials',
+          'credential',
+          req.user.id,
+          { count: allCredentials.length, asAdmin: true }
+        );
 
         return res.status(200).json({
           status: 'success',
@@ -492,29 +489,75 @@ exports.getAllCredentials = async (req, res) => {
 
     let credentials = Array.from(allCredentialsMap.values());
     
-    // Decrypt passwords if requested
-    if (req.query.decrypted === 'true') {
-      console.log('Decrypting passwords for all credentials');
-      credentials = credentials.map(credential => {
-        const credentialJSON = credential.toJSON();
+    // Process credentials to include access level and decrypt if requested
+    credentials = await Promise.all(credentials.map(async credential => {
+      const credentialJSON = credential.toJSON();
+      
+      // Determine access level for this credential
+      let accessLevel = 'view'; // Default access level
+      
+      // If user is admin or credential owner, they have full access
+      if (req.user.role === 'admin' || credential.ownerId === req.user.id) {
+        accessLevel = 'edit';
+      } else {
+        // Check direct credential sharing
+        const credentialShare = await CredentialShare.findOne({
+          where: {
+            credentialId: credential.id,
+            userId: req.user.id
+          }
+        });
+        
+        if (credentialShare && credentialShare.permission === 'edit') {
+          accessLevel = 'edit';
+        } else {
+          // Check group membership permissions
+          const credentialGroups = await CredentialGroup.findAll({
+            where: { credentialId: credential.id }
+          });
+          
+          const groupIds = credentialGroups.map(cg => cg.groupId);
+          
+          if (groupIds.length > 0) {
+            const groupMemberships = await GroupMember.findAll({
+              where: {
+                groupId: { [Op.in]: groupIds },
+                userId: req.user.id,
+                role: { [Op.in]: ['admin', 'editor'] } // Roles with edit permission
+              }
+            });
+            
+            if (groupMemberships.length > 0) {
+              accessLevel = 'edit';
+            }
+          }
+        }
+      }
+      
+      // Add access level to the credential JSON
+      credentialJSON.accessLevel = accessLevel;
+      
+      // Decrypt passwords if requested
+      if (req.query.decrypted === 'true') {
+        console.log('Decrypting password for credential:', credential.id);
         credentialJSON.password = credential.decryptPassword();
         if (credential.token) {
           credentialJSON.token = credential.decryptToken();
         }
-        return credentialJSON;
-      });
-    }
+      }
+      
+      return credentialJSON;
+    }));
 
     // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'view_credential',
-      resourceType: 'credential',
-      resourceId: req.user.id, // User's own ID as resource since we're viewing multiple credentials
-      details: { count: credentials.length },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      req,
+      'view_credential',
+      'credential',
+      req.user.id, // User's own ID as resource since we're viewing multiple credentials
+      { count: credentials.length }
+    );
 
     res.status(200).json({
       status: 'success',
@@ -564,18 +607,61 @@ exports.getCredential = async (req, res) => {
       });
     }
     
-    // Log activity
-    await Activity.create({
-      userId,
-      action: 'view_credential',
-      resourceType: 'credential',
-      resourceId: credentialId,
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      req,
+      'view_credential',
+      'credential',
+      credentialId,
+      null
+    );
     
     // If decryption is requested, decrypt sensitive fields
     let responseCredential = { ...credential.toJSON() };
+    
+    // Determine access level for this credential
+    let accessLevel = 'view'; // Default access level
+    
+    // If user is admin or credential owner, they have full access
+    if (req.user.role === 'admin' || credential.ownerId === req.user.id) {
+      accessLevel = 'edit';
+    } else {
+      // Check direct credential sharing
+      const credentialShare = await CredentialShare.findOne({
+        where: {
+          credentialId: credential.id,
+          userId: req.user.id
+        }
+      });
+      
+      if (credentialShare && credentialShare.permission === 'edit') {
+        accessLevel = 'edit';
+      } else {
+        // Check group membership permissions
+        const credentialGroups = await CredentialGroup.findAll({
+          where: { credentialId: credential.id }
+        });
+        
+        const groupIds = credentialGroups.map(cg => cg.groupId);
+        
+        if (groupIds.length > 0) {
+          const groupMemberships = await GroupMember.findAll({
+            where: {
+              groupId: { [Op.in]: groupIds },
+              userId: req.user.id,
+              role: { [Op.in]: ['admin', 'editor'] } // Roles with edit permission
+            }
+          });
+          
+          if (groupMemberships.length > 0) {
+            accessLevel = 'edit';
+          }
+        }
+      }
+    }
+    
+    // Add access level to the credential JSON
+    responseCredential.accessLevel = accessLevel;
     
     if (shouldDecrypt) {
       try {
@@ -801,19 +887,17 @@ exports.updateCredential = async (req, res) => {
     // Update the credential
     await credential.update(req.body);
     
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'edit_credential',
-      resourceType: 'credential',
-      resourceId: credential.id,
-      details: { 
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      req,
+      'edit_credential',
+      'credential',
+      credential.id,
+      { 
         websiteName: credential.websiteName,
         fields: Object.keys(req.body)
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+      }
+    );
 
     // Fetch updated credential with groups
     const updatedCredential = await Credential.findByPk(credential.id, {
@@ -917,16 +1001,14 @@ exports.deleteCredential = async (req, res) => {
       fieldChanges: {}
     });
 
-    // Log activity before deletion
-    await Activity.create({
-      userId: req.user.id,
-      action: 'delete_credential',
-      resourceType: 'credential',
-      resourceId: credential.id,
-      details: { websiteName: credential.websiteName },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+    // Log activity before deletion - will only be stored for admin users
+    await activityController.createActivityLog(
+      req,
+      'delete_credential',
+      'credential',
+      credential.id,
+      { websiteName: credential.websiteName }
+    );
     
     // Instead of deleting, move to deleted items table
     const credentialJson = credential.toJSON();
@@ -1035,20 +1117,18 @@ exports.shareCredential = async (req, res) => {
       });
     }
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'share_credential',
-      resourceType: 'credential',
-      resourceId: credential.id,
-      details: { 
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      req,
+      'share_credential',
+      'credential',
+      credential.id,
+      { 
         websiteName: credential.websiteName,
         sharedWith: userId,
         accessType
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+      }
+    );
 
     res.status(200).json({
       status: 'success',
@@ -1115,19 +1195,17 @@ exports.revokeAccess = async (req, res) => {
     // Delete the share
     await share.destroy();
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'revoke_credential_access',
-      resourceType: 'credential',
-      resourceId: credential.id,
-      details: { 
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      req,
+      'revoke_credential_access',
+      'credential',
+      credential.id,
+      { 
         websiteName: credential.websiteName,
         revokedFrom: userId
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+      }
+    );
 
     res.status(200).json({
       status: 'success',
@@ -1283,19 +1361,17 @@ exports.getCredentialVersionHistory = async (req, res) => {
       }
     }
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'view_credential',
-      resourceType: 'credential',
-      resourceId: req.params.id,
-      details: { 
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      req,
+      'view_credential',
+      'credential',
+      req.params.id,
+      { 
         action: 'view_version_history',
         count: versions.length
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+      }
+    );
 
     res.status(200).json({
       status: 'success',
@@ -1428,19 +1504,17 @@ exports.updateCredentialAccess = async (req, res) => {
       grantedBy: req.user.id
     });
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'change_user_permission',
-      resourceType: 'credential',
-      resourceId: req.params.id,
-      details: { 
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      req,
+      'change_user_permission',
+      'credential',
+      req.params.id,
+      { 
         userId: req.params.userId,
         accessType
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+      }
+    );
 
     res.status(200).json({
       status: 'success',
@@ -1495,16 +1569,14 @@ exports.revokeCredentialAccess = async (req, res) => {
     // Delete the access record
     await access.destroy();
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'revoke_credential_access',
-      resourceType: 'credential',
-      resourceId: req.params.id,
-      details: { userId: req.params.userId },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      req,
+      'revoke_credential_access',
+      'credential',
+      req.params.id,
+      { userId: req.params.userId }
+    );
 
     res.status(200).json({
       success: true,

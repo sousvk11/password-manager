@@ -82,7 +82,8 @@ function App() {
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="groups/:groupId" element={<GroupDetail />} />
               <Route path="profile" element={<Profile />} />
-              <Route path="activity" element={<ActivityLogs />} />
+              {/* Restrict Activity Logs to admin users only */}
+              <Route path="activity" element={<AdminRoute><ActivityLogs /></AdminRoute>} />
               
               {/* Admin Routes */}
               <Route path="admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />

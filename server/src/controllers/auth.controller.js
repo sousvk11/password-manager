@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/user.model');
 const Activity = require('../models/activity.model');
+const activityController = require('./activity.controller');
 const OTP = require('../models/otp.model');
 const TrustedDevice = require('../models/trustedDevice.model');
 const emailService = require('../utils/emailService');
@@ -201,16 +202,14 @@ exports.completeSignup = async (req, res) => {
       expiresAt
     });
     
-    // Log activity
-    await Activity.create({
-      userId: user.id,
-      action: 'login',
-      resourceType: 'user',
-      resourceId: user.id,
-      details: { method: 'signup' },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      { user: { id: user.id, role: user.role }, ip: req.ip, headers: req.headers },
+      'login',
+      'user',
+      user.id,
+      { method: 'signup' }
+    );
     
     // Remove the pending registration data
     global.pendingRegistrations.delete(email);
@@ -285,15 +284,14 @@ exports.initiateLogin = async (req, res) => {
         
         // Log activity
         try {
-          await Activity.create({
-            userId: user.id,
-            action: 'login',
-            resourceType: 'user',
-            resourceId: user.id,
-            details: { method: 'demo_login' },
-            ipAddress: req.ip,
-            userAgent: req.headers['user-agent']
-          });
+          // Log activity - will only be stored for admin users
+          await activityController.createActivityLog(
+            { user: { id: user.id, role: user.role }, ip: req.ip, headers: req.headers },
+            'login',
+            'user',
+            user.id,
+            { method: 'demo_login' }
+          );
         } catch (activityError) {
           console.error('Error logging activity:', activityError);
           // Continue even if activity logging fails
@@ -388,16 +386,14 @@ exports.initiateLogin = async (req, res) => {
       user.currentDeviceId = deviceId;
       await user.save();
       
-      // Log activity
-      await Activity.create({
-        userId: user.id,
-        action: 'login',
-        resourceType: 'user',
-        resourceId: user.id,
-        details: { method: 'standard_login_no_otp' },
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent']
-      });
+      // Log activity - will only be stored for admin users
+      await activityController.createActivityLog(
+        { user: { id: user.id, role: user.role }, ip: req.ip, headers: req.headers },
+        'login',
+        'user',
+        user.id,
+        { method: 'standard_login_no_otp' }
+      );
       
       return createSendToken(user, 200, req, res);
     }
@@ -435,16 +431,14 @@ exports.initiateLogin = async (req, res) => {
     user.currentDeviceId = deviceId;
     await user.save();
     
-    // Log activity
-    await Activity.create({
-      userId: user.id,
-      action: 'login',
-      resourceType: 'user',
-      resourceId: user.id,
-      details: { method: 'standard_login' },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      { user: { id: user.id, role: user.role }, ip: req.ip, headers: req.headers },
+      'login',
+      'user',
+      user.id,
+      { method: 'standard_login' }
+    );
     
     createSendToken(user, 200, req, res);
   } catch (err) {
@@ -529,15 +523,14 @@ exports.completeLogin = async (req, res) => {
     await user.save();
     
     // Log activity
-    await Activity.create({
-      userId: user.id,
-      action: 'login',
-      resourceType: 'user',
-      resourceId: user.id,
-      details: { method: 'otp_login' },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      { user: { id: user.id, role: user.role }, ip: req.ip, headers: req.headers },
+      'login',
+      'user',
+      user.id,
+      { method: 'otp_login' }
+    );
     
     createSendToken(user, 200, req, res);
   } catch (err) {
@@ -552,16 +545,15 @@ exports.completeLogin = async (req, res) => {
 // Logout user
 exports.logout = async (req, res) => {
   try {
-    // Log activity if user is authenticated
+    // Log activity if user is authenticated - will only be stored for admin users
     if (req.user) {
-      await Activity.create({
-        userId: req.user.id,
-        action: 'logout',
-        resourceType: 'user',
-        resourceId: req.user.id,
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent']
-      });
+      await activityController.createActivityLog(
+        { user: { id: req.user.id, role: req.user.role }, ip: req.ip, headers: req.headers },
+        'logout',
+        'user',
+        req.user.id,
+        null
+      );
     }
     
     res.status(200).json({
@@ -666,15 +658,14 @@ exports.completePasswordReset = async (req, res) => {
     await user.save();
     
     // Log activity
-    await Activity.create({
-      userId: user.id,
-      action: 'change_user_permission', // Using an existing action type
-      resourceType: 'user',
-      resourceId: user.id,
-      details: { method: 'password_reset' },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      { user: { id: user.id, role: user.role }, ip: req.ip, headers: req.headers },
+      'change_user_permission', // Using an existing action type
+      'user',
+      user.id,
+      { method: 'password_reset' }
+    );
     
     res.status(200).json({
       status: 'success',
@@ -878,16 +869,14 @@ exports.resetPassword = async (req, res) => {
     otpRecord.isVerified = true;
     await otpRecord.save();
     
-    // Log activity
-    await Activity.create({
-      userId: user.id,
-      action: 'change_user_permission', // Using an existing action type
-      resourceType: 'user',
-      resourceId: user.id,
-      details: { method: 'forgot_password' },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+    // Log activity - will only be stored for admin users
+    await activityController.createActivityLog(
+      { user: { id: user.id, role: user.role }, ip: req.ip, headers: req.headers },
+      'change_user_permission', // Using an existing action type
+      'user',
+      user.id,
+      { method: 'forgot_password' }
+    );
     
     res.status(200).json({
       status: 'success',

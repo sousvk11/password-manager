@@ -184,10 +184,55 @@ const CredentialDetail = () => {
     }
   };
   
-  // Copy to clipboard
+  // Copy to clipboard with fallback method
   const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    toast.info('Copied to clipboard!');
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          toast.info('Copied to clipboard!');
+        }).catch(err => {
+          console.error('Failed to copy: ', err);
+          fallbackCopyToClipboard(text);
+        });
+      } else {
+        fallbackCopyToClipboard(text);
+      }
+    } catch (err) {
+      console.error('Copy failed: ', err);
+      toast.error('Failed to copy to clipboard');
+    }
+  };
+
+  // Fallback method for copying to clipboard
+  const fallbackCopyToClipboard = (text) => {
+    try {
+      // Create a temporary textarea element
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      
+      // Make the textarea out of viewport
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      document.body.appendChild(textArea);
+      
+      // Select and copy
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand('copy');
+      
+      // Clean up
+      document.body.removeChild(textArea);
+      
+      if (successful) {
+        toast.info('Copied to clipboard!');
+      } else {
+        toast.error('Failed to copy to clipboard');
+      }
+    } catch (err) {
+      console.error('Fallback copy failed: ', err);
+      toast.error('Failed to copy to clipboard');
+    }
   };
   
   // Toggle password visibility
@@ -268,16 +313,27 @@ const CredentialDetail = () => {
                   {credential.websiteName}
                 </Typography>
                 <Box>
-                  <Tooltip title="Edit Credential">
-                    <IconButton onClick={handleOpenEditDialog} color="primary">
-                      <EditIcon />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Delete Credential">
-                    <IconButton onClick={handleOpenDeleteDialog} color="error">
-                      <DeleteIcon />
-                    </IconButton>
-                  </Tooltip>
+                  {/* Only show edit button to credential owner, group owners, admins, or users with edit permissions */}
+                  {(credential.ownerId === currentUser.id || 
+                    (credential.group && credential.group.ownerId === currentUser.id) ||
+                    currentUser.role === 'admin' ||
+                    credential.accessLevel === 'edit') && (
+                    <Tooltip title="Edit Credential">
+                      <IconButton onClick={handleOpenEditDialog} color="primary">
+                        <EditIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  {/* Only show delete button to credential owner, group owners, or admins */}
+                  {(credential.ownerId === currentUser.id || 
+                    (credential.group && credential.group.ownerId === currentUser.id) ||
+                    currentUser.role === 'admin') && (
+                    <Tooltip title="Delete Credential">
+                      <IconButton onClick={handleOpenDeleteDialog} color="error">
+                        <DeleteIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </Box>
               </Box>
               

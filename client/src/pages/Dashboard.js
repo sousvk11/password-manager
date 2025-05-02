@@ -14,6 +14,7 @@ import {
   DialogContent,
   DialogActions,
   FormControl,
+  FormHelperText,
   InputLabel,
   Select,
   MenuItem,
@@ -659,12 +660,53 @@ const Dashboard = () => {
   
   // Copy to clipboard
   const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text).then(() => {
-      toast.success('Copied to clipboard!');
-    }).catch(err => {
-      console.error('Could not copy text: ', err);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          toast.success('Copied to clipboard!');
+        }).catch(err => {
+          console.error('Failed to copy: ', err);
+          fallbackCopyToClipboard(text);
+        });
+      } else {
+        fallbackCopyToClipboard(text);
+      }
+    } catch (err) {
+      console.error('Copy failed: ', err);
       toast.error('Failed to copy to clipboard');
-    });
+    }
+  };
+
+  // Fallback method for copying to clipboard
+  const fallbackCopyToClipboard = (text) => {
+    try {
+      // Create a temporary textarea element
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      
+      // Make the textarea out of viewport
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      document.body.appendChild(textArea);
+      
+      // Select and copy
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand('copy');
+      
+      // Clean up
+      document.body.removeChild(textArea);
+      
+      if (successful) {
+        toast.success('Copied to clipboard!');
+      } else {
+        toast.error('Failed to copy to clipboard');
+      }
+    } catch (err) {
+      console.error('Fallback copy failed: ', err);
+      toast.error('Failed to copy to clipboard');
+    }
   };
   
   // Toggle password visibility
@@ -1603,26 +1645,37 @@ const Dashboard = () => {
                         </IconButton>
                       </Tooltip>
                     )}
-                    <Tooltip title="Edit Credential">
-                      <IconButton 
-                        size="small" 
-                        color="primary"
-                        onClick={() => handleOpenCredentialDialog(credential, 'editCredential')}
-                        aria-label="Edit credential"
-                      >
-                        <EditIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete Credential">
-                      <IconButton 
-                        size="small" 
-                        color="error"
-                        onClick={() => handleOpenDeleteDialog(credential.id, 'credential', 'deleteCredential')}
-                        aria-label="Delete credential"
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
+                    {/* Edit button - visible to users with edit permissions */}
+                    {(credential.ownerId === currentUser.id || 
+                      (credential.Groups && credential.Groups.some(g => g.ownerId === currentUser.id)) ||
+                      currentUser.role === 'admin' ||
+                      credential.accessLevel === 'edit') && (
+                      <Tooltip title="Edit Credential">
+                        <IconButton 
+                          size="small" 
+                          color="primary"
+                          onClick={() => handleOpenCredentialDialog(credential, 'editCredential')}
+                          aria-label="Edit credential"
+                        >
+                          <EditIcon />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {/* Delete button - only visible to credential owner, group owners, or admins */}
+                    {(credential.ownerId === currentUser.id || 
+                      (credential.Groups && credential.Groups.some(g => g.ownerId === currentUser.id)) ||
+                      currentUser.role === 'admin') && (
+                      <Tooltip title="Delete Credential">
+                        <IconButton 
+                          size="small" 
+                          color="error"
+                          onClick={() => handleOpenDeleteDialog(credential.id, 'credential', 'deleteCredential')}
+                          aria-label="Delete credential"
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                   </Box>
                 </CardContent>
               </Card>
@@ -1901,7 +1954,7 @@ const Dashboard = () => {
             sx={{ mb: 2 }}
           />
           
-          <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
+          <FormControl fullWidth margin="dense" sx={{ mb: 2 }} required error={!credentialForm.groups || credentialForm.groups.length === 0}>
             <InputLabel id="groups-label">Groups</InputLabel>
             <Select
               labelId="groups-label"
@@ -1918,6 +1971,7 @@ const Dashboard = () => {
                 </MenuItem>
               ))}
             </Select>
+            <FormHelperText>{(!credentialForm.groups || credentialForm.groups.length === 0) ? 'At least one group is required' : ''}</FormHelperText>
           </FormControl>
           
           <TextField
@@ -1939,7 +1993,7 @@ const Dashboard = () => {
           <Button 
             onClick={handleCredentialSubmit} 
             variant="contained"
-            disabled={!credentialForm.websiteName || (credentialForm.id === '' && !credentialForm.password)}
+            disabled={!credentialForm.websiteName || (credentialForm.id === '' && !credentialForm.password) || !credentialForm.groups || credentialForm.groups.length === 0}
           >
             {credentialForm.id ? 'Update' : 'Add'}
           </Button>

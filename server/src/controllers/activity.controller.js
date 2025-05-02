@@ -1,5 +1,62 @@
 const Activity = require('../models/activity.model');
 
+// Helper function to create activity logs with admin check
+// Only admin activities will be stored, regular user activities will be silently discarded
+exports.createActivityLog = async (req, action, resourceType, resourceId, details) => {
+  try {
+    // Handle different request object structures
+    let userId, isAdmin, ipAddress, userAgent;
+    
+    // Standard Express request object
+    if (req.user && req.headers) {
+      userId = req.user.id;
+      isAdmin = req.user.role === 'admin';
+      ipAddress = req.ip;
+      userAgent = req.headers['user-agent'];
+    } 
+    // Custom object passed from auth controller
+    else if (req.user && req.ip) {
+      userId = req.user.id;
+      isAdmin = req.user.role === 'admin';
+      ipAddress = req.ip;
+      userAgent = req.headers ? req.headers['user-agent'] : 'Unknown';
+    }
+    // Fallback
+    else {
+      console.warn('Invalid request object structure passed to createActivityLog');
+      userId = 0;
+      isAdmin = false;
+      ipAddress = '0.0.0.0';
+      userAgent = 'Unknown';
+    }
+    
+    // Create the activity with the isAdminActivity flag
+    return await Activity.create({
+      userId,
+      action,
+      resourceType,
+      resourceId,
+      details,
+      ipAddress,
+      userAgent,
+      isAdminActivity: isAdmin // This flag will determine if the activity is stored or discarded
+    });
+  } catch (error) {
+    console.error('Error creating activity log:', error);
+    // Return a mock activity object in case of error
+    return {
+      id: 0,
+      userId: req.user ? req.user.id : 0,
+      action,
+      resourceType,
+      resourceId,
+      details: details || {},
+      timestamp: new Date(),
+      get: function(options) { return this; }
+    };
+  }
+};
+
 // Get all activities (admin only)
 exports.getAllActivities = async (req, res) => {
   try {

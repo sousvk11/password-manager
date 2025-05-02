@@ -1,7 +1,36 @@
 const { Model, DataTypes } = require('sequelize');
 const sequelize = require('../database/connection');
 
-class Activity extends Model {}
+class Activity extends Model {
+  // Override the create method to only log activities for admin users
+  static async create(data) {
+    // Check if the activity is being created by or for an admin user
+    const isAdminActivity = data.isAdminActivity || false;
+    
+    // If it's not an admin activity, silently discard it
+    if (!isAdminActivity) {
+      console.log('Activity logging disabled for regular users - silently discarding:', data.action);
+      // Return a mock activity object
+      return {
+        id: 0,
+        userId: data.userId || 0,
+        action: data.action || 'unknown',
+        resourceType: data.resourceType || 'unknown',
+        resourceId: data.resourceId || 0,
+        details: data.details || {},
+        ipAddress: data.ipAddress || '',
+        userAgent: data.userAgent || '',
+        timestamp: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        get: function(options) { return this; }
+      };
+    }
+    
+    // For admin activities, proceed with normal creation
+    return super.create(data);
+  }
+}
 
 Activity.init({
   id: {

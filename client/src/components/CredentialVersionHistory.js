@@ -69,12 +69,53 @@ const CredentialVersionHistory = ({ open, handleClose, credentialId }) => {
       return;
     }
     
-    navigator.clipboard.writeText(text).then(() => {
-      toast.success('Copied to clipboard!');
-    }).catch(err => {
-      console.error('Could not copy text: ', err);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          toast.success('Copied to clipboard!');
+        }).catch(err => {
+          console.error('Failed to copy: ', err);
+          fallbackCopyToClipboard(text);
+        });
+      } else {
+        fallbackCopyToClipboard(text);
+      }
+    } catch (err) {
+      console.error('Copy failed: ', err);
       toast.error('Failed to copy to clipboard');
-    });
+    }
+  };
+
+  // Fallback method for copying to clipboard
+  const fallbackCopyToClipboard = (text) => {
+    try {
+      // Create a temporary textarea element
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      
+      // Make the textarea out of viewport
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      textArea.style.top = '-999999px';
+      document.body.appendChild(textArea);
+      
+      // Select and copy
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand('copy');
+      
+      // Clean up
+      document.body.removeChild(textArea);
+      
+      if (successful) {
+        toast.success('Copied to clipboard!');
+      } else {
+        toast.error('Failed to copy to clipboard');
+      }
+    } catch (err) {
+      console.error('Fallback copy failed: ', err);
+      toast.error('Failed to copy to clipboard');
+    }
   };
 
   // handleRestore function removed as requested

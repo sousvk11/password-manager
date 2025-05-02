@@ -208,20 +208,23 @@ const Layout = () => {
               <ListItemText primary="Credentials" />
             </ListItem>
             
-            <ListItem 
-              button 
-              onClick={() => handleNavigate('/activity')}
-              sx={{ 
-                mb: 1,
-                borderRadius: '0 20px 20px 0',
-                '&:hover': { bgcolor: 'rgba(33, 150, 243, 0.1)' },
-              }}
-            >
-              <ListItemIcon>
-                <ActivityIcon color="primary" />
-              </ListItemIcon>
-              <ListItemText primary="Activity Logs" />
-            </ListItem>
+            {/* Only show Activity Logs for admin users */}
+            {isAdmin() && (
+              <ListItem 
+                button 
+                onClick={() => handleNavigate('/activity')}
+                sx={{ 
+                  mb: 1,
+                  borderRadius: '0 20px 20px 0',
+                  '&:hover': { bgcolor: 'rgba(33, 150, 243, 0.1)' },
+                }}
+              >
+                <ListItemIcon>
+                  <ActivityIcon color="primary" />
+                </ListItemIcon>
+                <ListItemText primary="Activity Logs" />
+              </ListItem>
+            )}
           </List>
           
           <Divider />
