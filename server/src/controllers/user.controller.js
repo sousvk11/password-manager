@@ -3,6 +3,7 @@ const Activity = require('../models/activity.model');
 const sequelize = require('../database/connection');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const activityController = require('./activity.controller');
 
 // Get current user
 exports.getMe = async (req, res) => {
@@ -95,20 +96,21 @@ exports.createUser = async (req, res) => {
       userAgent: req.headers['user-agent']
     });
 
-    // Log activity - use an action that already exists in the ENUM
-    await Activity.create({
-      userId: req.user.id,
-      action: 'change_user_permission', // Using an existing action type
-      resourceType: 'user',
-      resourceId: newUser.id,
-      details: { 
+    // Log activity with enhanced details
+    await activityController.createActivityLog(
+      req,
+      'create_user',
+      'user',
+      newUser.id,
+      {
+        targetUser: newUser.name,
         name: newUser.name,
         email: newUser.email,
-        operation: 'create' // Add operation detail to clarify this was a create
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+        role: newUser.role,
+        context: `Admin created a new user with role: ${newUser.role}`,
+        actionType: 'create'
+      }
+    );
 
     // Remove password from output
     const userObj = newUser.toJSON();
@@ -161,22 +163,24 @@ exports.updateUser = async (req, res) => {
       });
     }
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'change_user_permission', // Using an existing action type
-      resourceType: 'user',
-      resourceId: req.params.id, // Use the params.id which is guaranteed to exist
-      details: { 
+    // Log activity with enhanced details
+    await activityController.createActivityLog(
+      req,
+      'update_user',
+      'user',
+      req.params.id,
+      {
+        targetUser: user[1].name,
         name: user[1].name,
         email: user[1].email,
         role: user[1].role,
+        active: user[1].active,
         fields: Object.keys(req.body),
-        operation: 'update' // Add operation detail to clarify this was an update
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+        hasPasswordChange: !!req.body.password,
+        context: `Admin updated user: ${Object.keys(req.body).join(', ')}`,
+        actionType: 'update'
+      }
+    );
 
     res.status(200).json({
       status: 'success',
@@ -254,17 +258,20 @@ exports.deleteUser = async (req, res) => {
       // Commit the transaction
       await transaction.commit();
 
-      // Log activity - use an action that already exists in the ENUM
-      await Activity.create({
-        userId: req.user.id,
-        action: 'change_user_permission', // Using an existing action type
-        resourceType: 'user',
-        resourceId: userInfo.id,
-        details: {
-          operation: 'delete',
-          user: userInfo
+      // Log activity with enhanced details
+      await activityController.createActivityLog(
+        req,
+        'delete_user',
+        'user',
+        userInfo.id,
+        {
+          targetUser: userInfo.name,
+          name: userInfo.name,
+          email: userInfo.email,
+          context: `Admin deleted user: ${userInfo.name} (${userInfo.email})`,
+          actionType: 'delete'
         }
-      });
+      );
 
       res.status(200).json({
         status: 'success',
@@ -316,20 +323,21 @@ exports.updateMe = async (req, res) => {
       }
     );
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'edit_user',
-      resourceType: 'user',
-      resourceId: req.user.id,
-      details: { 
+    // Log activity with enhanced details
+    await activityController.createActivityLog(
+      req,
+      'edit_user',
+      'user',
+      req.user.id,
+      {
+        targetUser: updatedUser[1].name,
         name: updatedUser[1].name,
         email: updatedUser[1].email,
-        fields: Object.keys(req.body)
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+        fields: Object.keys(req.body),
+        context: `User updated their profile: ${Object.keys(req.body).join(', ')}`,
+        actionType: 'update'
+      }
+    );
 
     res.status(200).json({
       status: 'success',
@@ -363,18 +371,21 @@ exports.updatePassword = async (req, res) => {
     user.password = req.body.newPassword;
     await user.save();
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'edit_user',
-      resourceType: 'user',
-      resourceId: req.user.id,
-      details: { 
-        action: 'password_update'
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+    // Log activity with enhanced details
+    await activityController.createActivityLog(
+      req,
+      'update_password',
+      'user',
+      req.user.id,
+      {
+        targetUser: user.name,
+        name: user.name,
+        email: user.email,
+        context: 'User updated their password',
+        actionType: 'update',
+        securityAction: 'password_change'
+      }
+    );
 
     // Log user in, send JWT
     const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, {

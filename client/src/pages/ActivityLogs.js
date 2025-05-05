@@ -306,7 +306,8 @@ const ActivityLogs = () => {
                 <TableCell>Action</TableCell>
                 <TableCell>Resource Type</TableCell>
                 <TableCell>Details</TableCell>
-                <TableCell>IP Address</TableCell>
+                <TableCell>Device Info</TableCell>
+                <TableCell>Location</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -360,6 +361,7 @@ const ActivityLogs = () => {
                     <TableCell>
                       {activity.details && (
                         <Box>
+                          {/* Display standard details */}
                           {safeGet(activity, 'details.websiteName') && (
                             <Typography variant="body2">
                               Website: {safeGet(activity, 'details.websiteName')}
@@ -387,10 +389,75 @@ const ActivityLogs = () => {
                               Action: {safeGet(activity, 'details.action')}
                             </Typography>
                           )}
+                          
+                          {/* Display resource-specific details */}
+                          {activity.resourceType === 'credential' && safeGet(activity, 'details.credentialName') && (
+                            <Typography variant="body2">
+                              Credential: {safeGet(activity, 'details.credentialName')}
+                            </Typography>
+                          )}
+                          {activity.resourceType === 'group' && safeGet(activity, 'details.groupName') && (
+                            <Typography variant="body2">
+                              Group: {safeGet(activity, 'details.groupName')}
+                            </Typography>
+                          )}
+                          {activity.resourceType === 'user' && safeGet(activity, 'details.targetUser') && (
+                            <Typography variant="body2">
+                              Target User: {safeGet(activity, 'details.targetUser')}
+                            </Typography>
+                          )}
+                          
+                          {/* Display any additional context */}
+                          {safeGet(activity, 'details.context') && (
+                            <Typography variant="body2">
+                              Context: {safeGet(activity, 'details.context')}
+                            </Typography>
+                          )}
                         </Box>
                       )}
                     </TableCell>
-                    <TableCell>{activity.ipAddress || 'N/A'}</TableCell>
+                    <TableCell>
+                      {/* Device Information */}
+                      <Box>
+                        {safeGet(activity, 'details.browser') && (
+                          <Typography variant="body2">
+                            Browser: {safeGet(activity, 'details.browser')}
+                          </Typography>
+                        )}
+                        {safeGet(activity, 'details.os') && (
+                          <Typography variant="body2">
+                            OS: {safeGet(activity, 'details.os')}
+                          </Typography>
+                        )}
+                        <Typography variant="body2">
+                          IP: {activity.ipAddress || 'N/A'}
+                        </Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      {/* Location Information */}
+                      {safeGet(activity, 'details.location') ? (
+                        <Box>
+                          {safeGet(activity, 'details.location.country') && (
+                            <Typography variant="body2">
+                              Country: {safeGet(activity, 'details.location.country')}
+                            </Typography>
+                          )}
+                          {safeGet(activity, 'details.location.region') && (
+                            <Typography variant="body2">
+                              Region: {safeGet(activity, 'details.location.region')}
+                            </Typography>
+                          )}
+                          {safeGet(activity, 'details.location.city') && (
+                            <Typography variant="body2">
+                              City: {safeGet(activity, 'details.location.city')}
+                            </Typography>
+                          )}
+                        </Box>
+                      ) : (
+                        <Typography variant="body2">Location data unavailable</Typography>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))
               )}

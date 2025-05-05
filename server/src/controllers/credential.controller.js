@@ -12,6 +12,27 @@ const CredentialAccess = require('../models/credentialAccess.model');
 const DeletedItem = require('../models/deletedItem.model');
 const crypto = require('crypto-js');
 
+// Helper function to get group names from group IDs
+async function getGroupNames(groupIds) {
+  try {
+    if (!groupIds || !Array.isArray(groupIds) || groupIds.length === 0) {
+      return [];
+    }
+    
+    const groups = await Group.findAll({
+      where: {
+        id: { [Op.in]: groupIds }
+      },
+      attributes: ['id', 'name']
+    });
+    
+    return groups.map(group => group.name);
+  } catch (error) {
+    console.error('Error getting group names:', error);
+    return [];
+  }
+}
+
 // Helper function to decrypt a field using crypto-js (same as in Credential model)
 const decryptField = async (encryptedValue) => {
   try {
@@ -275,15 +296,25 @@ exports.createCredential = async (req, res) => {
     
     await CredentialGroup.bulkCreate(credentialGroups);
 
-    // Log activity - will only be stored for admin users
+    // Log activity with enhanced details - will only be stored for admin users
     await activityController.createActivityLog(
       req,
       'create_credential',
       'credential',
       newCredential.id,
       { 
+        credentialName: newCredential.websiteName,
         websiteName: newCredential.websiteName,
-        groupIds: groupIds
+        url: newCredential.url,
+        email: newCredential.email,
+        userId: newCredential.userId,
+        hasPassword: !!newCredential.password,
+        hasToken: !!newCredential.token,
+        description: newCredential.description,
+        groupIds: groupIds,
+        groupNames: await getGroupNames(groupIds),
+        context: 'User created a new credential',
+        actionType: 'create'
       }
     );
 
@@ -887,15 +918,22 @@ exports.updateCredential = async (req, res) => {
     // Update the credential
     await credential.update(req.body);
     
-    // Log activity - will only be stored for admin users
+    // Log activity with enhanced details - will only be stored for admin users
     await activityController.createActivityLog(
       req,
       'edit_credential',
       'credential',
       credential.id,
       { 
+        credentialName: credential.websiteName,
         websiteName: credential.websiteName,
-        fields: Object.keys(req.body)
+        fields: changedFields,
+        fieldChanges: fieldChanges,
+        groupIds: req.body.groupIds || [],
+        groupNames: req.body.groupIds ? await getGroupNames(req.body.groupIds) : [],
+        context: `User updated credential: ${changedFields.join(', ')}`,
+        actionType: 'update',
+        versionNumber: versionNumber
       }
     );
 
@@ -1001,13 +1039,34 @@ exports.deleteCredential = async (req, res) => {
       fieldChanges: {}
     });
 
-    // Log activity before deletion - will only be stored for admin users
+    // Get the groups associated with this credential for logging purposes
+    const credentialGroups = await CredentialGroup.findAll({
+      where: { credentialId: credential.id },
+      include: [{ model: Group, attributes: ['id', 'name'] }]
+    });
+    
+    const groupIds = credentialGroups.map(cg => cg.groupId);
+    const groupNames = credentialGroups.map(cg => cg.Group ? cg.Group.name : 'Unknown Group');
+    
+    // Log activity before deletion with enhanced details
     await activityController.createActivityLog(
       req,
       'delete_credential',
       'credential',
       credential.id,
-      { websiteName: credential.websiteName }
+      { 
+        credentialName: credential.websiteName,
+        websiteName: credential.websiteName,
+        url: credential.url,
+        email: credential.email,
+        userId: credential.userId,
+        description: credential.description,
+        groupIds: groupIds,
+        groupNames: groupNames,
+        context: 'User deleted a credential',
+        actionType: 'delete',
+        versionNumber: versionNumber
+      }
     );
     
     // Instead of deleting, move to deleted items table

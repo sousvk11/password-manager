@@ -2,32 +2,20 @@ const { Model, DataTypes } = require('sequelize');
 const sequelize = require('../database/connection');
 
 class Activity extends Model {
-  // Override the create method to only log activities for admin users
+  // Enhanced create method to log activities for all users
   static async create(data) {
-    // Check if the activity is being created by or for an admin user
+    // Store the isAdminActivity flag for filtering purposes
     const isAdminActivity = data.isAdminActivity || false;
     
-    // If it's not an admin activity, silently discard it
-    if (!isAdminActivity) {
-      console.log('Activity logging disabled for regular users - silently discarding:', data.action);
-      // Return a mock activity object
-      return {
-        id: 0,
-        userId: data.userId || 0,
-        action: data.action || 'unknown',
-        resourceType: data.resourceType || 'unknown',
-        resourceId: data.resourceId || 0,
-        details: data.details || {},
-        ipAddress: data.ipAddress || '',
-        userAgent: data.userAgent || '',
-        timestamp: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        get: function(options) { return this; }
-      };
+    // Add isAdminActivity to the data object if not already present
+    if (!('isAdminActivity' in data)) {
+      data.isAdminActivity = isAdminActivity;
     }
     
-    // For admin activities, proceed with normal creation
+    // Log that we're creating an activity
+    console.log(`Creating activity log: ${data.action} for user ${data.userId}`);
+    
+    // Proceed with normal creation for all activities
     return super.create(data);
   }
 }
@@ -48,13 +36,33 @@ Activity.init({
   },
   action: {
     type: DataTypes.ENUM(
+      // Authentication activities
       'login', 
       'logout', 
+      'login_attempt_failed',
+      'password_reset_initiated',
+      'password_reset_completed',
+      'signup_initiated',
+      'signup_completed',
+      'pin_created',
+      'pin_updated',
+      'pin_verified',
+      'pin_verification_failed',
+      
+      // Credential activities
       'create_credential', 
       'view_credential', 
       'view_all_credentials',
       'edit_credential', 
       'delete_credential',
+      'view_credential_history',
+      'restore_credential_version',
+      'export_credentials',
+      'import_credentials',
+      'copy_credential_field',
+      'search_credentials',
+      
+      // Group activities
       'create_group',
       'view_group',
       'view_all_groups',
@@ -64,12 +72,19 @@ Activity.init({
       'remove_user_from_group',
       'remove_group_member',
       'update_group_member_role',
+      
+      // Sharing activities
       'change_user_permission',
       'share_credential',
       'revoke_credential_access',
+      
+      // User management activities
       'create_user',
       'edit_user',
       'delete_user',
+      'update_user',
+      'update_password',
+      'change_role',
       'enable_otp',
       'disable_otp',
       'restore_credential',

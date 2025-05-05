@@ -4,6 +4,7 @@ const GroupMember = require('../models/groupMember.model');
 const Activity = require('../models/activity.model');
 const Credential = require('../models/credential.model');
 const DeletedItem = require('../models/deletedItem.model');
+const activityController = require('./activity.controller');
 
 // Create a new group
 exports.createGroup = async (req, res) => {
@@ -17,16 +18,21 @@ exports.createGroup = async (req, res) => {
       ownerId: req.user.id
     });
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'create_group',
-      resourceType: 'group',
-      resourceId: group.id,
-      details: { name },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+    // Log activity with enhanced details
+    await activityController.createActivityLog(
+      req,
+      'create_group',
+      'group',
+      group.id,
+      {
+        groupName: name,
+        name: name,
+        description: description,
+        ownerId: req.user.id,
+        context: 'User created a new group',
+        actionType: 'create'
+      }
+    );
 
     res.status(201).json({
       status: 'success',
@@ -211,19 +217,23 @@ exports.updateGroup = async (req, res) => {
     
     await group.save();
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'edit_group',
-      resourceType: 'group',
-      resourceId: group.id,
-      details: { 
+    // Log activity with enhanced details
+    await activityController.createActivityLog(
+      req,
+      'edit_group',
+      'group',
+      group.id,
+      {
+        groupName: group.name,
         name: group.name,
-        fields: Object.keys(req.body)
-      },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
-    });
+        description: group.description,
+        ownerId: group.ownerId,
+        fields: Object.keys(req.body),
+        oldValues: req.body,
+        context: `User updated group: ${Object.keys(req.body).join(', ')}`,
+        actionType: 'update'
+      }
+    );
 
     res.status(200).json({
       status: 'success',
@@ -299,16 +309,32 @@ exports.deleteGroup = async (req, res) => {
     // Now delete the group from the main table
     await group.destroy();
 
-    // Log activity
-    await Activity.create({
-      userId: req.user.id,
-      action: 'delete_group',
-      resourceType: 'group',
-      resourceId: req.params.id,
-      details: { name: group.name },
-      ipAddress: req.ip,
-      userAgent: req.headers['user-agent']
+    // Get the members of this group for logging purposes
+    const groupMembers = await GroupMember.findAll({
+      where: { groupId: req.params.id },
+      include: [{ model: User, attributes: ['id', 'name', 'email'] }]
     });
+    
+    const memberIds = groupMembers.map(member => member.userId);
+    const memberNames = groupMembers.map(member => member.User ? member.User.name : 'Unknown User');
+    
+    // Log activity with enhanced details
+    await activityController.createActivityLog(
+      req,
+      'delete_group',
+      'group',
+      req.params.id,
+      {
+        groupName: group.name,
+        name: group.name,
+        description: group.description,
+        ownerId: group.ownerId,
+        memberIds: memberIds,
+        memberNames: memberNames,
+        context: 'User deleted a group',
+        actionType: 'delete'
+      }
+    );
 
     // Return a success response with status 200 instead of 204
     // This ensures the frontend receives the success property
