@@ -28,12 +28,14 @@ const TrustedDevice = require('./models/trustedDevice.model');
 const PendingRegistration = require('./models/pendingRegistration.model');
 const UserPin = require('./models/userPin.model');
 const DeletedItem = require('./models/deletedItem.model');
+const Company = require('./models/company.model');
 
 // Import migrations
 const addOtpEnabledColumn = require('./migrations/add-otp-enabled-column');
 const updateActivityEnum = require('./migrations/update-activity-enum');
 const addDeletedItemsTable = require('./migrations/add-deleted-items-table');
 const updateActivityEnumForDeletedItems = require('./migrations/update-activity-enum-for-deleted-items');
+// Profile picture and company logo migration will be run through sequelize-cli
 
 // Define model associations
 const setupAssociations = () => {
@@ -118,6 +120,7 @@ const settingRoutes = require('./routes/setting.routes');
 const pinRoutes = require('./routes/pin.routes');
 const otpSettingsRoutes = require('./routes/otpSettings.routes');
 const deletedItemRoutes = require('./routes/deletedItem.routes');
+const profileRoutes = require('./routes/profile.routes');
 
 // Initialize Express app
 const app = express();
@@ -128,13 +131,29 @@ app.set('trust proxy', 1);
 // Set security HTTP headers
 app.use(helmet());
 
-// Rate limiting
-const limiter = rateLimit({
+// Rate limiting - General API limit
+const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again after 15 minutes'
+  max: 300, // limit each IP to 300 requests per windowMs
+  message: 'Too many requests from this IP, please try again after 15 minutes',
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
-app.use('/api', limiter);
+
+// More lenient rate limiting for authentication routes
+const authLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 50, // limit each IP to 50 login attempts per 5 minutes
+  message: 'Too many login attempts, please try again after 5 minutes',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply rate limiters to specific routes
+app.use('/api/v1/auth/login', authLimiter);
+app.use('/api/v1/auth/login/initiate', authLimiter);
+app.use('/api/v1/auth/login/complete', authLimiter);
+app.use('/api/v1', apiLimiter); // Apply general limiter to all other API routes
 
 // Body parser
 app.use(express.json({ limit: '10kb' }));
@@ -161,6 +180,7 @@ app.use('/api/v1/settings', settingRoutes);
 app.use('/api/v1/pins', pinRoutes);
 app.use('/api/v1/otp-settings', otpSettingsRoutes);
 app.use('/api/v1/deleted-items', deletedItemRoutes);
+app.use('/api/v1/profile', profileRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

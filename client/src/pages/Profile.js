@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import {
   Box,
   Typography,
@@ -9,13 +9,17 @@ import {
   Divider,
   CircularProgress,
   Alert,
-  Container
+  Container,
+  Tab,
+  Tabs
 } from '@mui/material';
 import { toast } from 'react-toastify';
 import axios from '../utils/axiosConfig';
 import AuthContext from '../context/AuthContext';
 import PinManagement from '../components/PinManagement';
 import OtpManagement from '../components/OtpManagement';
+import ProfilePictureUpload from '../components/ProfilePictureUpload';
+import CompanyLogoUpload from '../components/CompanyLogoUpload';
 
 const Profile = () => {
   const { currentUser, updateProfile, updatePassword } = useContext(AuthContext);
@@ -142,7 +146,7 @@ const Profile = () => {
   React.useEffect(() => {
     const fetchActivityStats = async () => {
       try {
-        const response = await axios.get(`/activities/user/${currentUser._id}`);
+        const response = await axios.get(`/activities/user/${currentUser.id}`);
         
         // Calculate stats
         const activities = response.data.data.activities;
@@ -166,137 +170,250 @@ const Profile = () => {
     fetchActivityStats();
   }, [currentUser._id]);
   
+  // Tab state
+  const [tabValue, setTabValue] = useState(0);
+  
+  const handleTabChange = (event, newValue) => {
+    setTabValue(newValue);
+  };
+  
+  // Handle profile picture update
+  const handleProfilePictureUpdate = () => {
+    // Refresh user data if needed
+    toast.success('Profile picture updated successfully!');
+  };
+  
+  // Handle company logo update
+  const handleCompanyLogoUpdate = () => {
+    toast.success('Company logo updated successfully!');
+  };
+
   return (
-    <Container maxWidth="md">
-      <Typography variant="h4" component="h1" gutterBottom>
+    <Container maxWidth="md" sx={{ mt: 4, mb: 4 }}>
+      <Typography variant="h4" gutterBottom>
         Profile Settings
       </Typography>
       
-      <Grid container spacing={3}>
-        <Grid item xs={12}>
-          <PinManagement />
-        </Grid>
-        
-        <Grid item xs={12}>
-          <OtpManagement />
-        </Grid>
-        
-        <Grid item xs={12}>
-          <Paper elevation={3} sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Personal Information
-            </Typography>
-            <Divider sx={{ mb: 3 }} />
-            
-            <Box component="form" onSubmit={handleProfileUpdate}>
-              <Grid container spacing={2}>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    id="name"
-                    name="name"
-                    label="Full Name"
-                    value={profileForm.name}
-                    onChange={handleProfileChange}
-                    error={!!profileErrors.name}
-                    helperText={profileErrors.name}
-                    required
-                  />
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={tabValue} onChange={handleTabChange} aria-label="profile tabs">
+          <Tab label="Profile Information" />
+          <Tab label="Security" />
+          <Tab label="Appearance" />
+        </Tabs>
+      </Box>
+      
+      {tabValue === 0 && (
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <PinManagement />
+          </Grid>
+          
+          <Grid item xs={12}>
+            <OtpManagement />
+          </Grid>
+          
+          <Grid item xs={12} md={6}>
+            <Paper elevation={3} sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Your Profile Picture
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
+              
+              <ProfilePictureUpload onPictureUpdate={handleProfilePictureUpdate} />
+            </Paper>
+          </Grid>
+          
+          <Grid item xs={12} md={6}>
+            <Paper elevation={3} sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Your Company Logo
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
+              
+              <CompanyLogoUpload onLogoUpdate={handleProfilePictureUpdate} />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
+                This logo will be displayed in the application header when you are logged in.
+              </Typography>
+            </Paper>
+          </Grid>
+          
+          <Grid item xs={12} md={6}>
+            <Paper elevation={3} sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Profile Information
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
+              
+              <Box component="form" onSubmit={handleProfileUpdate}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      id="name"
+                      name="name"
+                      label="Full Name"
+                      value={profileForm.name}
+                      onChange={handleProfileChange}
+                      error={!!profileErrors.name}
+                      helperText={profileErrors.name}
+                      required
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      id="email"
+                      name="email"
+                      label="Email Address"
+                      value={profileForm.email}
+                      onChange={handleProfileChange}
+                      error={!!profileErrors.email}
+                      helperText={profileErrors.email}
+                      required
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Button
+                      type="submit"
+                      variant="contained"
+                      disabled={profileLoading}
+                      sx={{ mt: 1 }}
+                    >
+                      {profileLoading ? <CircularProgress size={24} /> : 'Update Profile'}
+                    </Button>
+                  </Grid>
                 </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    id="email"
-                    name="email"
-                    label="Email Address"
-                    value={profileForm.email}
-                    onChange={handleProfileChange}
-                    error={!!profileErrors.email}
-                    helperText={profileErrors.email}
-                    required
-                  />
+              </Box>
+            </Paper>
+          </Grid>
+        </Grid>
+      )}
+      
+      {tabValue === 1 && (
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={6}>
+            <Paper elevation={3} sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Change Password
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
+              
+              <Box component="form" onSubmit={handlePasswordUpdate}>
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      id="currentPassword"
+                      name="currentPassword"
+                      label="Current Password"
+                      type="password"
+                      value={passwordForm.currentPassword}
+                      onChange={handlePasswordChange}
+                      error={!!passwordErrors.currentPassword}
+                      helperText={passwordErrors.currentPassword}
+                      required
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      id="newPassword"
+                      name="newPassword"
+                      label="New Password"
+                      type="password"
+                      value={passwordForm.newPassword}
+                      onChange={handlePasswordChange}
+                      error={!!passwordErrors.newPassword}
+                      helperText={passwordErrors.newPassword}
+                      required
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      id="confirmPassword"
+                      name="confirmPassword"
+                      label="Confirm New Password"
+                      type="password"
+                      value={passwordForm.confirmPassword}
+                      onChange={handlePasswordChange}
+                      error={!!passwordErrors.confirmPassword}
+                      helperText={passwordErrors.confirmPassword}
+                      required
+                    />
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Button
+                      type="submit"
+                      variant="contained"
+                      color="secondary"
+                      disabled={passwordLoading}
+                      sx={{ mt: 1 }}
+                    >
+                      {passwordLoading ? <CircularProgress size={24} /> : 'Update Password'}
+                    </Button>
+                  </Grid>
                 </Grid>
-                <Grid item xs={12}>
-                  <Button
-                    type="submit"
-                    variant="contained"
-                    disabled={profileLoading}
-                    sx={{ mt: 1 }}
-                  >
-                    {profileLoading ? <CircularProgress size={24} /> : 'Update Profile'}
-                  </Button>
+              </Box>
+            </Paper>
+          </Grid>
+          
+          <Grid item xs={12}>
+            <Paper elevation={3} sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Security Settings
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
+              
+              <Grid container spacing={3}>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    PIN Management
+                  </Typography>
+                  <PinManagement />
+                </Grid>
+                
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle1" gutterBottom>
+                    Two-Factor Authentication
+                  </Typography>
+                  <OtpManagement />
                 </Grid>
               </Grid>
-            </Box>
-          </Paper>
+            </Paper>
+          </Grid>
         </Grid>
-        
-        <Grid item xs={12}>
-          <Paper elevation={3} sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Change Password
-            </Typography>
-            <Divider sx={{ mb: 3 }} />
-            
-            <Box component="form" onSubmit={handlePasswordUpdate}>
-              <Grid container spacing={2}>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    id="currentPassword"
-                    name="currentPassword"
-                    label="Current Password"
-                    type="password"
-                    value={passwordForm.currentPassword}
-                    onChange={handlePasswordChange}
-                    error={!!passwordErrors.currentPassword}
-                    helperText={passwordErrors.currentPassword}
-                    required
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    id="newPassword"
-                    name="newPassword"
-                    label="New Password"
-                    type="password"
-                    value={passwordForm.newPassword}
-                    onChange={handlePasswordChange}
-                    error={!!passwordErrors.newPassword}
-                    helperText={passwordErrors.newPassword}
-                    required
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <TextField
-                    fullWidth
-                    id="confirmPassword"
-                    name="confirmPassword"
-                    label="Confirm New Password"
-                    type="password"
-                    value={passwordForm.confirmPassword}
-                    onChange={handlePasswordChange}
-                    error={!!passwordErrors.confirmPassword}
-                    helperText={passwordErrors.confirmPassword}
-                    required
-                  />
-                </Grid>
-                <Grid item xs={12}>
-                  <Button
-                    type="submit"
-                    variant="contained"
-                    disabled={passwordLoading}
-                    sx={{ mt: 1 }}
-                  >
-                    {passwordLoading ? <CircularProgress size={24} /> : 'Change Password'}
-                  </Button>
-                </Grid>
-              </Grid>
-            </Box>
-          </Paper>
+      )}
+      
+      {tabValue === 2 && (
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={6}>
+            <Paper elevation={3} sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Your Company Logo
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
+              
+              <CompanyLogoUpload onLogoUpdate={handleCompanyLogoUpdate} />
+            </Paper>
+          </Grid>
+          
+          <Grid item xs={12} md={6}>
+            <Paper elevation={3} sx={{ p: 3 }}>
+              <Typography variant="h6" gutterBottom>
+                Company Information
+              </Typography>
+              <Divider sx={{ mb: 3 }} />
+              
+              <Typography variant="body1">
+                Only administrators can update company information.
+              </Typography>
+            </Paper>
+          </Grid>
         </Grid>
-        
+      )}
+      
+      {tabValue === 0 && (
         <Grid item xs={12}>
           <Paper elevation={3} sx={{ p: 3 }}>
             <Typography variant="h6" gutterBottom>
@@ -362,7 +479,7 @@ const Profile = () => {
             )}
           </Paper>
         </Grid>
-      </Grid>
+      )}
     </Container>
   );
 };

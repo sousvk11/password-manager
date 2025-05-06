@@ -44,6 +44,8 @@ import axios from 'axios';
 import SMTPSettings from '../components/SMTPSettings';
 import DomainSettings from '../components/DomainSettings';
 import DeletedItems from '../components/DeletedItems';
+import AppTitleSettings from '../components/AppTitleSettings';
+import FaviconUpload from '../components/FaviconUpload';
 
 const AdminPanel = () => {
   const location = useLocation();
@@ -489,6 +491,12 @@ const AdminPanel = () => {
               <Typography variant="h6" gutterBottom>
                 System Settings
               </Typography>
+              
+              {/* App Title Settings */}
+              <AppTitleSettings />
+              
+              {/* Favicon Settings */}
+              <FaviconUpload />
               
               {/* SMTP Settings */}
               <SMTPSettings />

@@ -23,7 +23,8 @@ import {
   CircularProgress,
   InputAdornment,
   Divider,
-  Link
+  Link,
+  Avatar
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -1207,22 +1208,19 @@ const Dashboard = () => {
                           key={member.id} 
                           title={`${member.name} (${member.email}) - ${member.GroupMember?.role || 'member'}`}
                         >
-                          <Box
+                          <Avatar
+                            src={`/api/v1/profile/picture/${member.id}?t=${new Date().getTime()}`}
                             sx={{
-                              bgcolor: 'primary.light',
-                              color: 'primary.contrastText',
-                              borderRadius: '50%',
                               width: 24,
                               height: 24,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
                               fontSize: '0.75rem',
-                              fontWeight: 'bold'
+                              bgcolor: 'primary.light',
+                              color: 'primary.contrastText'
                             }}
+                            alt={member.name}
                           >
                             {member.name.charAt(0).toUpperCase()}
-                          </Box>
+                          </Avatar>
                         </Tooltip>
                       ))}
                       {group.members.length > 3 && (
@@ -1354,22 +1352,19 @@ const Dashboard = () => {
                           key={member.id} 
                           title={`${member.name} (${member.email}) - ${member.GroupMember?.role || 'member'}`}
                         >
-                          <Box
+                          <Avatar
+                            src={`/api/v1/profile/picture/${member.id}?t=${new Date().getTime()}`}
                             sx={{
-                              bgcolor: 'primary.light',
-                              color: 'primary.contrastText',
-                              borderRadius: '50%',
                               width: 24,
                               height: 24,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
                               fontSize: '0.75rem',
-                              fontWeight: 'bold'
+                              bgcolor: 'primary.light',
+                              color: 'primary.contrastText'
                             }}
+                            alt={member.name}
                           >
                             {member.name.charAt(0).toUpperCase()}
-                          </Box>
+                          </Avatar>
                         </Tooltip>
                       ))}
                       {group.members.length > 3 && (

@@ -127,6 +127,16 @@ User.init({
     type: DataTypes.BOOLEAN,
     defaultValue: true,
     comment: 'Whether OTP verification is required for login'
+  },
+  profilePicture: {
+    type: DataTypes.BLOB('long'),
+    allowNull: true,
+    comment: 'User profile picture stored as binary data'
+  },
+  companyLogo: {
+    type: DataTypes.BLOB('long'),
+    allowNull: true,
+    comment: 'Company logo stored as binary data'
   }
 }, {
   sequelize,
