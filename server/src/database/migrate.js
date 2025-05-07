@@ -53,6 +53,59 @@ const migrate = async () => {
     setupAssociations();
 
     console.log('Creating tables...');
+    
+    // First create the users table
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        role ENUM('user', 'admin') DEFAULT 'user',
+        active BOOLEAN DEFAULT TRUE,
+        lastLogin DATETIME,
+        isEmailVerified BOOLEAN DEFAULT FALSE,
+        isGuest BOOLEAN DEFAULT FALSE,
+        registrationComplete BOOLEAN DEFAULT FALSE,
+        currentDeviceId VARCHAR(255),
+        lastDeviceId VARCHAR(255),
+        otpEnabled BOOLEAN DEFAULT TRUE,
+        profilePicture LONGBLOB,
+        companyLogo LONGBLOB,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL
+      );
+    `);
+    
+    // Then create the groups table
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS \`groups\` (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        description TEXT,
+        ownerId INT NOT NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        FOREIGN KEY (ownerId) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
+    
+    // Create group_members table
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS group_members (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        groupId INT NOT NULL,
+        userId INT NOT NULL,
+        role ENUM('member', 'admin') DEFAULT 'member',
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        FOREIGN KEY (groupId) REFERENCES \`groups\`(id) ON DELETE CASCADE,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_group_user (groupId, userId)
+      );
+    `);
+    
+    // Now create the credentials table
     await sequelize.query(`
       CREATE TABLE IF NOT EXISTS credentials (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -71,6 +124,7 @@ const migrate = async () => {
       );
     `);
 
+    // Create credential_shares table
     await sequelize.query(`
       CREATE TABLE IF NOT EXISTS credential_shares (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -85,6 +139,7 @@ const migrate = async () => {
       );
     `);
 
+    // Create credential_groups table
     await sequelize.query(`
       CREATE TABLE IF NOT EXISTS credential_groups (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -98,9 +153,26 @@ const migrate = async () => {
         UNIQUE KEY unique_credential_group (credentialId, groupId)
       );
     `);
+    
+    // Create activities table
+    await sequelize.query(`
+      CREATE TABLE IF NOT EXISTS activities (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        userId INT NOT NULL,
+        action ENUM('login', 'logout', 'create', 'update', 'delete', 'share', 'unshare', 'view') NOT NULL,
+        entityType VARCHAR(50) NOT NULL,
+        entityId INT,
+        details TEXT,
+        ipAddress VARCHAR(45),
+        userAgent TEXT,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      );
+    `);
 
     console.log('Syncing database...');
-    await sequelize.sync({ force: true });
+    await sequelize.sync({ alter: true });
 
     console.log('Database migration completed successfully!');
     process.exit(0);
